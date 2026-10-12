@@ -23,7 +23,7 @@ function Assert-DownloadUrl($Url,$Repository){
 }
 function Get-VerifiedRelease {
  $local=Get-Content -LiteralPath (Join-Path $script:AppDir 'release.json') -Raw | ConvertFrom-Json
- if($local.repository -ne 'Skolastico/GoXLR-Personalizado'){throw 'Unexpected update repository'}
+ if($local.repository -ne 'Skolastico/SlopXLR'){throw 'Unexpected update repository'}
  try{$releases=Invoke-RestMethod ('https://api.github.com/repos/'+$local.repository+'/releases?per_page=20') -Headers @{'User-Agent'='GoXLR-Personalizado';Accept='application/vnd.github+json'} -TimeoutSec 15}catch{if($_.Exception.Response.StatusCode.value__ -eq 404){return @{available=$false;message='Ainda não há versões públicas disponíveis. Se o repositório for privado, consulta as versões no GitHub.'}};throw}
  $release=$releases | Where-Object {!$_.draft -and ($local.channel -eq 'beta' -or !$_.prerelease) -and $_.tag_name -match '^v\d+\.\d+\.\d+(?:-beta\.\d+)?$'} | Select-Object -First 1
  if(!$release){return @{available=$false;message='Ainda não existem versões publicadas.'}}
@@ -52,7 +52,7 @@ if($Mode -eq 'SelfTest'){
  if((Compare-Version '0.1.0' '0.1.0') -ne 0){throw 'Equality failed'}
  $rsa=[Security.Cryptography.RSA]::Create(2048)
  try{$bytes=[Text.Encoding]::UTF8.GetBytes('trusted');$sig=[Convert]::ToBase64String($rsa.SignData($bytes,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1));Verify-SignedManifest $bytes $sig $rsa.ToXmlString($false);$rejected=$false;try{Verify-SignedManifest ([Text.Encoding]::UTF8.GetBytes('tampered')) $sig $rsa.ToXmlString($false)}catch{$rejected=$true};if(!$rejected){throw 'Tampering accepted'}}finally{$rsa.Dispose()}
- $rejected=$false;try{Assert-DownloadUrl 'https://github.com.evil.test/Skolastico/GoXLR-Personalizado/releases/download/v1/a.exe' 'Skolastico/GoXLR-Personalizado'}catch{$rejected=$true};if(!$rejected){throw 'Lookalike host accepted'}
+ $rejected=$false;try{Assert-DownloadUrl 'https://github.com.evil.test/Skolastico/SlopXLR/releases/download/v1/a.exe' 'Skolastico/SlopXLR'}catch{$rejected=$true};if(!$rejected){throw 'Lookalike host accepted'}
  'Update verification tests passed';exit
 }
 $stopped=$false

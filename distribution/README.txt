@@ -31,6 +31,6 @@ Uninstalling keeps your data. Do not run two GoXLR applications at once.
 Private repository: download releases while signed in to GitHub and install manually. Automatic updates require signed public releases.
 Update signatures are separate from Windows executable code signing.
 
-Source / Código: https://github.com/Skolastico/GoXLR-Personalizado
+Source / Código: https://github.com/Skolastico/SlopXLR
 Based on GoXLR-on-Linux/GoXLR-Utility and the GoXLR Utility UI wrapper.
 See LICENSE, LICENSE-UI and LICENSE-3RD-PARTY.
