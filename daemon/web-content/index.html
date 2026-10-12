@@ -8,8 +8,20 @@
     <title>GoXLR Utility</title>
     <script type="module" crossorigin src="/assets/index-BJM830Pw.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-5sq1XGk0.css">
+    <link rel="stylesheet" href="/microphone-equaliser-integration.css">
   </head>
   <body>
+    <nav aria-label="Utilitários" style="display:flex;justify-content:flex-end;flex-wrap:wrap;gap:20px;padding:10px 16px;background:#252927;border-bottom:1px solid #58635e;font:14px Arial,sans-serif"><a href="/redesign.html" style="color:#009dff;text-underline-offset:4px">Interface principal</a><a href="/diagnostics.html" style="color:#7ac8cb;text-underline-offset:4px">Diagnóstico</a><a href="/button-actions.html" style="color:#7ac8cb;text-underline-offset:4px">Ações dos botões</a><a href="/application-controls.html" style="color:#7ac8cb;text-underline-offset:4px">Aplicações</a></nav>
+    <div id="profile-error" hidden style="padding:12px 16px;background:#3e2424;color:#fff;font:16px Arial,sans-serif;overflow-wrap:anywhere">
+      <p id="profile-error-message" role="alert" style="margin:0 0 10px"></p>
+      <button type="button" onclick="document.getElementById('profile-error').hidden=true" style="padding:6px 12px;cursor:pointer">Fechar aviso</button>
+    </div>
+    <script>
+      window.showProfileError = function (error) {
+        document.getElementById('profile-error-message').textContent = 'A alteração do perfil não foi concluída. ' + String(error);
+        document.getElementById('profile-error').hidden = false;
+      };
+    </script>
     <noscript>
       <strong>We're sorry but the GoXLR Utility UI doesn't work properly without JavaScript enabled. Please enable it to continue.</strong>
     </noscript>
@@ -28,5 +40,6 @@
           img.src = 'wheel.png';
       };
     </script>
+    <script type="module" src="/microphone-equaliser-integration.js"></script>
   </body>
 </html>

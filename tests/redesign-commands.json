@@ -1,0 +1,1472 @@
+[
+  {
+    "Command": [
+      "test",
+      {
+        "SetDeeser": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetElementDisplayMode": [
+          "EqFineTune",
+          "Advanced"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer90Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer250Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer500Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer1KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer3KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqMiniFreq": [
+          "Equalizer8KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetGateAttack": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetGateRelease": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetCompressorRatio": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetCompressorAttack": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetCompressorReleaseTime": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetElementDisplayMode": [
+          "NoiseGate",
+          "Advanced"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetElementDisplayMode": [
+          "Compressor",
+          "Advanced"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetElementDisplayMode": [
+          "Equaliser",
+          "Advanced"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSubMixEnabled": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSubMixVolume": [
+          "Mic",
+          128
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSubMixLinked": [
+          "Mic",
+          true
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSubMixOutputMix": [
+          "Headphones",
+          "A"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSubMixOutputMix": [
+          "BroadcastMix",
+          "B"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMonitorMix": "Headphones"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetCoughMuteFunction": "All"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetCoughIsHold": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSwearButtonVolume": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAnimationMode": "RainbowBright"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAnimationMod1": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAnimationMod2": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAnimationWaterfall": "Down"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetFaderDisplayStyle": [
+          "A",
+          "Meter"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAllFaderDisplayStyle": "Meter"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetAllFaderColours": [
+          "00FFFF",
+          "FFFFFF"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetButtonOffStyle": [
+          "Fader1Mute",
+          "Dimmed"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetButtonGroupColours": [
+          "FaderMute",
+          "00FFFF",
+          "FFFFFF"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetButtonGroupOffStyle": [
+          "FaderMute",
+          "Dimmed"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMuteHoldDuration": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetVodMode": "Routable"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetVCMuteAlsoMuteCM": true
+      }
+    ]
+  },
+  {
+    "Daemon": {
+      "SetAutoStartEnabled": true
+    }
+  },
+  {
+    "Daemon": {
+      "SetShowTrayIcon": true
+    }
+  },
+  {
+    "Daemon": {
+      "SetUiLaunchOnLoad": true
+    }
+  },
+  {
+    "Daemon": {
+      "SetTTSEnabled": true
+    }
+  },
+  {
+    "Daemon": {
+      "SetAllowNetworkAccess": true
+    }
+  },
+  {
+    "Daemon": {
+      "SetLogLevel": "Info"
+    }
+  },
+  {
+    "Daemon": {
+      "SetLocale": "$nullable"
+    }
+  },
+  {
+    "Daemon": {
+      "SetActivatorPath": "$nullable"
+    }
+  },
+  {
+    "Daemon": {
+      "RecoverDefaults": "Profiles"
+    }
+  },
+  {
+    "Daemon": {
+      "RecoverDefaults": "MicProfiles"
+    }
+  },
+  {
+    "Daemon": {
+      "RecoverDefaults": "Presets"
+    }
+  },
+  {
+    "Daemon": {
+      "RecoverDefaults": "Icons"
+    }
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "LoadProfile": [
+          "Default",
+          true
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "LoadProfileColours": "Default"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "DeleteProfile": "Default"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "LoadMicProfile": [
+          "Mic",
+          true
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "DeleteMicProfile": "Mic"
+      }
+    ]
+  },
+  {
+    "Daemon": {
+      "OpenPath": "Profiles"
+    }
+  },
+  {
+    "Daemon": {
+      "OpenPath": "MicProfiles"
+    }
+  },
+  {
+    "Daemon": {
+      "OpenPath": "Presets"
+    }
+  },
+  {
+    "Daemon": {
+      "OpenPath": "Samples"
+    }
+  },
+  {
+    "Daemon": {
+      "OpenPath": "Icons"
+    }
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "ReloadSettings": []
+      }
+    ]
+  },
+  {
+    "Daemon": {
+      "SetSampleGainPct": [
+        "sound.wav",
+        0
+      ]
+    }
+  },
+  {
+    "Daemon": "ApplySampleChange"
+  },
+  {
+    "Daemon": {
+      "SetFirmwareSource": "Live"
+    }
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetButtonColours": [
+          "Fader1Mute",
+          "00FFFF",
+          "FFFFFF"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSimpleColour": [
+          "Accent",
+          "00FFFF"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer31Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer63Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer125Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer250Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer500Hz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer1KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer2KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer4KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer8KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEqFreq": [
+          "Equalizer16KHz",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetScribbleIcon": [
+          "A",
+          "$nullable"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetScribbleText": [
+          "A",
+          "<Mic>"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetScribbleNumber": [
+          "A",
+          "1"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetScribbleInvert": [
+          "A",
+          true
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSampleOffStyle": [
+          "SamplerSelectA",
+          "Dimmed"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetFXEnabled": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetActiveEffectPreset": "Preset1"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SaveActivePreset": []
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "RenameActivePreset": "Clean"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "LoadEffectPreset": ""
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbStyle": "Library"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbDecay": 10
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbEarlyLevel": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbTailLevel": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbPreDelay": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbLowColour": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbHighColour": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbHighFactor": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbDiffuse": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbModSpeed": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetReverbModDepth": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoStyle": "Quarter"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoFeedback": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoTempo": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoFeedbackLeft": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoFeedbackRight": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoFeedbackXFBLtoR": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoFeedbackXFBRtoL": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetPitchStyle": "Narrow"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetPitchAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetPitchCharacter": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetGenderStyle": "Narrow"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetGenderAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMegaphoneEnabled": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMegaphoneStyle": "Megaphone"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMegaphoneAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMegaphonePostGain": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotEnabled": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotStyle": "Robot1"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotPulseWidth": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotThreshold": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotDryMix": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotWaveform": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotGain": [
+          "Low",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotFreq": [
+          "Low",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotWidth": [
+          "Low",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotGain": [
+          "Medium",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotFreq": [
+          "Medium",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotWidth": [
+          "Medium",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotGain": [
+          "High",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotFreq": [
+          "High",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetRobotWidth": [
+          "High",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneEnabled": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneStyle": "Natural"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneSource": "All"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneAmount": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneRate": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetHardTuneWindow": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetActiveSamplerBank": "A"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSamplerPreBufferDuration": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "ClearSampleProcessError": []
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "PlayNextSample": [
+          "A",
+          "TopLeft"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "StopSamplePlayback": [
+          "A",
+          "TopLeft"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSamplerFunction": [
+          "A",
+          "TopLeft",
+          "PlayNext"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSamplerOrder": [
+          "A",
+          "TopLeft",
+          "Sequential"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "AddSample": [
+          "A",
+          "TopLeft",
+          ""
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSampleStartPercent": [
+          "A",
+          "TopLeft",
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSampleStopPercent": [
+          "A",
+          "TopLeft",
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "PlaySampleByIndex": [
+          "A",
+          "TopLeft",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "RemoveSampleByIndex": [
+          "A",
+          "TopLeft",
+          0
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetMonitorWithFx": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSamplerResetOnClear": true
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSamplerFadeDuration": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSampleColour": [
+          "SamplerSelectA",
+          "00FFFF",
+          "FFFFFF",
+          "FF0000"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEncoderColour": [
+          "Reverb",
+          "00FFFF",
+          "FFFFFF",
+          "FF0000"
+        ]
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoStyle": "ClassicSlap"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoDelayLeft": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetEchoDelayRight": 0
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SaveProfile": []
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SaveMicProfile": []
+      }
+    ]
+  },
+  {
+    "RunFirmwareUpdate": [
+      "test",
+      null,
+      false
+    ]
+  },
+  {
+    "RunFirmwareUpdate": [
+      "test",
+      "test.bin",
+      false
+    ]
+  },
+  {
+    "ContinueFirmwareUpdate": "test"
+  },
+  {
+    "ClearFirmwareState": "test"
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "NewProfile": "Test"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SaveProfileAs": "Test"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "NewMicProfile": "Test"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SaveMicProfileAs": "Test"
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetShutdownCommands": []
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetSleepCommands": []
+      }
+    ]
+  },
+  {
+    "Command": [
+      "test",
+      {
+        "SetWakeCommands": []
+      }
+    ]
+  }
+]

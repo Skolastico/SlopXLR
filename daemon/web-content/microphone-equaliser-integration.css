@@ -1,0 +1,29 @@
+.goxlr-mic-eq-tools{align-self:stretch;width:min(760px,100%);margin:22px auto 8px;padding:18px;background:#252927;border:1px solid #58635e;border-radius:8px;color:#f0f3f1}
+.goxlr-mic-eq-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.goxlr-mic-eq-heading h3{margin:0;font-size:17px}
+.goxlr-mic-eq-heading p,.goxlr-mic-eq-note{margin:6px 0 0;color:#b7c4be;font-size:12px;line-height:1.5}
+.goxlr-mic-eq-heading output{max-width:55%;color:#7ac8cb;text-align:right;font-size:12px;line-height:1.5;font-variant-numeric:tabular-nums}
+.goxlr-mic-eq-chart{display:block;width:100%;height:auto;max-height:310px;margin:8px 0;overflow:visible}
+.goxlr-mic-eq-chart [data-grid] line{stroke:#58635e;stroke-width:1}
+.goxlr-mic-eq-chart [data-grid] line.zero{stroke:#9aa9a1;stroke-dasharray:5 5}
+.goxlr-mic-eq-chart [data-grid] line.vertical{opacity:.35}
+.goxlr-mic-eq-chart text{fill:#b7c4be;font-size:12px}
+.goxlr-mic-eq-chart path{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.goxlr-mic-eq-chart path.current{stroke:#7ac8cb}
+.goxlr-mic-eq-chart path.saved-a{stroke:#f0c674;stroke-dasharray:7 5}
+.goxlr-mic-eq-chart path.saved-b{stroke:#b8a1e3;stroke-dasharray:3 5}
+.goxlr-mic-eq-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.goxlr-mic-eq-legend,.goxlr-mic-eq-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.goxlr-mic-eq-legend{color:#b7c4be;font-size:12px}
+.goxlr-mic-eq-legend span{display:flex;align-items:center;gap:5px}
+.goxlr-mic-eq-legend i{display:inline-block;width:17px;height:3px;background:#7ac8cb}
+.goxlr-mic-eq-legend i.saved-a{height:0;border-top:2px dashed #f0c674;background:transparent}
+.goxlr-mic-eq-legend i.saved-b{height:0;border-top:2px dashed #b8a1e3;background:transparent}
+.goxlr-mic-eq-controls button{padding:6px 10px;border:1px solid #58635e;border-radius:5px;background:#303633;color:#f0f3f1;font-size:12px;cursor:pointer}
+.goxlr-mic-eq-controls button:hover:not(:disabled){border-color:#7ac8cb;color:#7ac8cb}
+.goxlr-mic-eq-controls button:focus-visible{outline:2px solid #7ac8cb;outline-offset:2px}
+.goxlr-mic-eq-controls button:disabled{opacity:.48;cursor:not-allowed}
+.goxlr-mic-eq-message{min-height:18px;margin:10px 0 0;color:#7ac8cb;font-size:12px}
+.goxlr-mic-eq-message.error{color:#ffb6ae}
+.goxlr-mic-eq-note{margin-top:2px}
+@media(max-width:700px){.goxlr-mic-eq-tools{margin:18px 10px 6px;padding:12px}.goxlr-mic-eq-heading{flex-direction:column}.goxlr-mic-eq-heading output{max-width:100%;text-align:left}.goxlr-mic-eq-controls{width:100%}.goxlr-mic-eq-controls button{flex:1 1 30%}}

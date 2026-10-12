@@ -1,0 +1,90 @@
+[package]
+name = "goxlr-utility-ui"
+version = "0.0.6"
+description = "GoXLR Utility UI"
+authors = ["Craig McLure <craig@mclure.net>"]
+license = "MIT"
+repository = "https://github.com/FrostyCoolSlug/goxlr-utility-ui"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.5", features = [] }
+
+[dependencies]
+# Useful GoXLR Stuff..
+tokio = { version = "1.43.0", features = ["full"] }
+tokio-serde = { version = "0.9.0", features = ["bincode", "json"] }
+tokio-util = { version = "0.7.13", features = ["codec", "compat"] }
+interprocess = { version = "2.2.2", features = ["tokio"] }
+serde = { version = "1.0.217", features = ["derive"] }
+futures = "0.3.31"
+
+# GoXLR Shared Items
+#goxlr-ipc = { git = "https://github.com/GoXLR-on-Linux/goxlr-utility" }
+
+# Websocket Handling Stuff..
+tungstenite = "0.26.1"
+
+# Used for Install / Remove..
+serde_json = "1.0.136"
+directories = "6.0.0"
+
+tauri = { version = "2.2.3", features = [] }
+tauri-plugin-single-instance = "2.2.1"
+tauri-plugin-window-state = "2.2.0"
+tauri-plugin-opener = "2.2.4"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+shell-words = "1.1.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "0.29.0", features = ["fs"] }
+objc2-app-kit = "0.3.0"
+objc2-foundation = "0.3.0"
+objc2 = "0.6.0"
+dispatch2 = "0.2.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-args = "0.2.0"
+windows = { version = "0.59.0", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging"
+] }
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+cargo-clippy = []
+
+[package.metadata.deb]
+name = "goxlr-utility-ui"
+assets = [
+    ["target/release/goxlr-utility-ui", "usr/bin/", "755"],
+    ["../ci/resources/goxlr-utility-ui.desktop", "usr/share/applications/", "644"],
+]
+section = "sound"
+priority = "optional"
+depends = "$auto, goxlr-utility (>= 0.12.0)"
+extended-description = """\
+A UI Wrapper for the GoXLR Utility
+"""
+revision = "1"
+
+## cargo generate-rpm support..
+[package.metadata.generate-rpm]
+name = "goxlr-utility-ui"
+assets = [
+    { source = "target/release/goxlr-utility-ui", dest = "/usr/bin/goxlr-utility-ui", mode = "0755" },
+    { source = "../ci/resources/goxlr-utility-ui.desktop", dest = "/usr/share/applications/goxlr-utility-ui.desktop", mode = "0644" },
+]
+
+# Because we build under Ubuntu in CI, generate-rpm is unable to calculate the dependencies required (no access
+# to rpm / yum), so we need to disable the auto and specify dependencies manually.
+auto-req = "no"
+
+[package.metadata.generate-rpm.requires]
+"libgtk-3.so.0" = "*"
+"libwebkit2gtk-4.1.so.0" = "*"
+"goxlr-utility" = ">= 0.12.0"

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aplicações · GoXLR Utility</title>
+  <link rel="stylesheet" href="/application-controls.css">
+  <script type="module" src="/application-controls.js"></script>
+</head>
+<body>
+  <header class="app-header"><a href="/" class="brand">GoXLR <span>Utility</span></a><nav aria-label="Utilitários"><a href="/button-actions.html">Ações dos botões</a><a href="/diagnostics.html">Diagnóstico</a><a href="/">Voltar à aplicação</a></nav></header>
+  <main>
+    <div class="page-heading"><div><h1>Aplicações por canal</h1><p>Controla individualmente o volume e o mute das aplicações atribuídas a cada canal.</p></div><label class="device-label" for="device">Dispositivo<select id="device" disabled><option>A procurar o Mini…</option></select></label></div>
+    <p id="feedback" role="status" aria-live="polite" class="subtle">A procurar aplicações com som…</p>
+    <section class="mode-status" aria-labelledby="mode-title"><div><h2 id="mode-title">Modo do GoXLR Mini</h2><p id="runtime">A consultar…</p></div><div id="page-slots" class="page-slots" aria-label="Aplicações nos quatro faders"></div></section>
+    <section class="add-section" aria-labelledby="add-title">
+      <h2 id="add-title">Adicionar aplicação</h2>
+      <p class="subtle">Abre a aplicação e reproduz som para aparecer na lista. Escolhe o canal de áudio, a página e o slider A–D que a controla no modo de aplicações. Depois guarda: o Utility encaminha o áudio no Windows e mostra o resultado abaixo de cada aplicação.</p>
+      <form id="add-form">
+        <label>Aplicação<select id="running-app" required><option value="">A procurar…</option></select></label>
+        <label>Nome<input id="app-name" maxlength="80" required></label>
+        <label>Canal<select id="app-channel"><option value="Music">Música</option><option value="Game">Jogo</option><option value="Chat">Chat</option><option value="System">Sistema</option><option value="Sample">Samples</option></select></label>
+        <label>Página<input id="app-page" type="number" min="1" max="100" value="1" required></label>
+        <label>Slider<select id="app-fader"><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
+        <label>Cor<input id="app-colour" type="color" value="#47c8a0"></label>
+        <label>Volume de reposição<input id="reset-volume" type="number" min="0" max="100" value="100"><span class="subtle">%</span></label>
+        <button id="add-button" type="submit" disabled>Adicionar</button>
+      </form>
+    </section>
+    <section aria-labelledby="apps-title"><div class="section-heading"><div><h2 id="apps-title">Aplicações configuradas</h2><p class="subtle">Se escolheres um slider ocupado, as duas aplicações trocam de posição. Guardar alterações fecha o modo de aplicações; volta a abri-lo para usar as novas posições.</p></div><button id="save" type="button" disabled>Guardar alterações</button></div><div id="applications" class="applications"><p class="subtle">Liga um Mini para começar.</p></div></section>
+    <p class="footnote">No hardware: duplo clique no mute de um fader para abrir as aplicações do canal desse fader. Os quatro faders controlam até quatro aplicações por página. Beep recua, mute temporário avança e o mesmo duplo clique sai. Mantém Beep + mute temporário premidos para repor os volumes de referência das aplicações desse canal com áudio ativo. Ao entrar numa página, move cada fader até à posição do volume atual para o ativar.</p>
+  </main>
+</body>
+</html>

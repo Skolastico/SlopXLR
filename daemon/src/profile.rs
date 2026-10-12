@@ -92,8 +92,12 @@ impl ProfileAdapter {
     }
 
     pub fn save_as(&mut self, name: String, directory: &Path, overwrite: bool) -> Result<()> {
-        self.name = name;
-        self.save(directory, overwrite)
+        let previous = std::mem::replace(&mut self.name, name);
+        if let Err(error) = self.save(directory, overwrite) {
+            self.name = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn save(&mut self, directory: &Path, overwrite: bool) -> Result<()> {
@@ -877,7 +881,7 @@ impl ProfileAdapter {
         sampler_prerecord: u16,
         processing_state: SampleProcessState,
     ) -> Option<Sampler> {
-        if is_device_mini {
+        if is_device_mini && audio_handler.is_none() {
             return None;
         }
 

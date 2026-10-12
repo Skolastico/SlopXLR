@@ -1,0 +1,10 @@
+{
+  "product": "GoXLR Personalizado",
+  "version": "0.1.0-beta.1",
+  "repository": "Skolastico/GoXLR-Personalizado",
+  "channel": "beta",
+  "tested_models": [
+    "Mini"
+  ],
+  "platform": "windows-x64"
+}

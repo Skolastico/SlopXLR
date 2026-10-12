@@ -21,7 +21,13 @@ use winrt_toast_reborn::{Audio, Toast, ToastDuration, ToastManager};
 
 const GOXLR_APP_NAME: &str = "GoXLR App.exe";
 const GOXLR_BETA_APP_NAME: &str = "GoXLR Beta App.exe";
-const AUTOSTART_FILENAME: &str = "GoXLR Utility.lnk";
+fn autostart_filename() -> &'static str {
+    if std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("installed.marker").exists())).unwrap_or(false) {
+        "GoXLR Personalizado.lnk"
+    } else {
+        "GoXLR Utility.lnk"
+    }
+}
 
 lazy_static! {
     static ref STARTUP_PATH: Option<PathBuf> = get_startup_dir();
@@ -146,7 +152,7 @@ fn throw_notification() {
 
 pub fn has_autostart() -> bool {
     if let Some(path) = &*STARTUP_PATH {
-        return path.join(AUTOSTART_FILENAME).exists();
+        return path.join(autostart_filename()).exists();
     }
 
     false
@@ -154,7 +160,7 @@ pub fn has_autostart() -> bool {
 
 pub fn remove_startup_link() -> Result<()> {
     if let Some(path) = &*STARTUP_PATH {
-        let file = path.join(AUTOSTART_FILENAME);
+        let file = path.join(autostart_filename());
         if !file.exists() {
             debug!("Attempted to remove link on non-existent file");
             return Ok(());
@@ -168,7 +174,7 @@ pub fn remove_startup_link() -> Result<()> {
 
 pub fn create_startup_link() -> Result<()> {
     if let Some(path) = &*STARTUP_PATH {
-        let file = path.join(AUTOSTART_FILENAME);
+        let file = path.join(autostart_filename());
         if file.exists() {
             // File already exists, we're done?
             return Ok(());
@@ -181,7 +187,23 @@ pub fn create_startup_link() -> Result<()> {
         let executable = dunce::simplified(&executable);
 
         // Create the Symlink to our current path..
-        let link = ShellLink::new(executable)?;
+        let script = executable.parent().unwrap().join("Start.ps1");
+        let mut link = if script.exists() {
+            let powershell = PathBuf::from(env::var("SystemRoot")?).join("System32/WindowsPowerShell/v1.0/powershell.exe");
+            let mut link = ShellLink::new(powershell)?;
+            link.set_arguments(Some(format!("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\" -Background", script.display())));
+            link
+        } else {
+            let mut link = ShellLink::new(executable)?;
+            let args: Vec<String> = env::args().collect();
+            if let Some(index) = args.iter().position(|arg| arg == "--config") {
+                if let Some(config) = args.get(index + 1) {
+                    link.set_arguments(Some(format!("--config \"{}\"", config)));
+                }
+            }
+            link
+        };
+        link.set_working_dir(executable.parent().map(|p| p.display().to_string()));
         link.create_lnk(file)?;
         return Ok(());
     }

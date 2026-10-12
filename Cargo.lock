@@ -2098,6 +2098,7 @@ dependencies = [
  "json-patch",
  "reqwest",
  "serde",
+ "serde_json",
  "tokio-serde",
  "tokio-util",
 ]

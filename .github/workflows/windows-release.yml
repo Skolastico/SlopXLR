@@ -1,0 +1,59 @@
+name: Windows release
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate
+        shell: pwsh
+        run: |
+          node --test tests/*.test.mjs
+          if ($LASTEXITCODE) { throw "UI tests failed" }
+          cargo test --locked -p goxlr-daemon
+          if ($LASTEXITCODE) { throw "Service tests failed" }
+          $version = (Get-Content distribution/release.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") { throw "Tag and package versions differ" }
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+      - name: Build signed packages
+        shell: powershell
+        env:
+          UPDATE_KEY: ${{ secrets.UPDATE_SIGNING_KEY_XML }}
+        run: |
+          if (!$env:UPDATE_KEY) { throw "Configure UPDATE_SIGNING_KEY_XML before creating a release" }
+          $key = Join-Path $env:RUNNER_TEMP "update-key.xml"
+          try {
+            [IO.File]::WriteAllText($key, $env:UPDATE_KEY)
+            & distribution/Build.ps1 -SigningKeyPath $key -NsisPath "C:/Program Files (x86)/NSIS/makensis.exe"
+          } finally { Remove-Item -LiteralPath $key -ErrorAction SilentlyContinue }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+            dist/update.json
+            dist/update.json.sig
+            dist/SHA256SUMS.txt
+      - name: Create beta release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+            dist/update.json
+            dist/update.json.sig
+            dist/SHA256SUMS.txt

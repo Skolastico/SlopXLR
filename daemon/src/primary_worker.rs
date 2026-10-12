@@ -33,7 +33,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use xmltree::Element;
 
-const IGNORE_DEVICE_DURATION: Duration = Duration::from_secs(10);
+const IGNORE_DEVICE_DURATION: Duration = Duration::from_secs(2);
 const APP_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 // Adding a third entry has tripped enum_variant_names, I'll probably need to rename
@@ -43,6 +43,11 @@ pub enum DeviceCommand {
     SendDaemonStatus(oneshot::Sender<DaemonStatus>),
     RunDaemonCommand(DaemonCommand, oneshot::Sender<Result<()>>),
     RunDeviceCommand(String, GoXLRCommand, oneshot::Sender<Result<()>>),
+    RunButtonAction(
+        String,
+        crate::button_actions::ButtonAction,
+        oneshot::Sender<Result<()>>,
+    ),
     GetDeviceMicLevel(String, oneshot::Sender<Result<f64>>),
     RunFirmwareUpdate(String, Option<PathBuf>, bool, oneshot::Sender<Result<()>>),
     ContinueFirmwareUpdate(String, oneshot::Sender<Result<()>>),
@@ -97,7 +102,7 @@ pub async fn spawn_usb_handler(
     ));
 
     // Create the device detection Sleep Timer..
-    let detection_duration = Duration::from_millis(1000);
+    let detection_duration = Duration::from_millis(250);
     let detection_sleep = sleep(Duration::from_millis(0));
     tokio::pin!(detection_sleep);
 
@@ -233,6 +238,8 @@ pub async fn spawn_usb_handler(
                 }
             }
             () = &mut detection_sleep => {
+                let now = Instant::now();
+                ignore_list.retain(|_, expires| *expires > now);
                 if let Some(device) = find_new_device(&daemon_status, &ignore_list) {
                     let existing_serials: Vec<String> = get_all_serials(&devices);
                     let bus_number = device.bus_number();
@@ -277,7 +284,7 @@ pub async fn spawn_usb_handler(
                     let updated = device.update_state().await;
 
                     if let Ok(result) = updated {
-                        change_found = result;
+                        change_found |= result;
                     }
 
                     if let Err(error) = updated {
@@ -511,6 +518,14 @@ pub async fn spawn_usb_handler(
                         }
                     },
 
+                    DeviceCommand::RunButtonAction(serial, action, sender) => {
+                        if let Some(device) = devices.get_mut(&serial) {
+                            let _ = sender.send(device.execute_button_action(action).await);
+                            change_found = true;
+                        } else {
+                            let _ = sender.send(Err(anyhow!("Liga o Mini antes de testar a ação.")));
+                        }
+                    },
                     DeviceCommand::GetDeviceMicLevel(serial, sender) => {
                         if let Some(device) = devices.get_mut(&serial) {
                             let _ = sender.send(device.get_mic_level().await);
@@ -618,6 +633,31 @@ pub async fn spawn_usb_handler(
 
                 files = update_files(files, path, &mut file_manager, &settings).await;
                 change_found = true;
+            }
+        }
+
+        // A failed profile rollback leaves hardware state unknown. Drop the session
+        // before publishing status or handling another command; discovery reloads
+        // the last successfully persisted profiles using a fresh USB session.
+        let recovering: Vec<String> = devices
+            .iter()
+            .filter(|(_, device)| device.needs_profile_recovery())
+            .map(|(serial, _)| serial.clone())
+            .collect();
+        for serial in &recovering {
+            warn!(
+                "[{}] Reinitializing after incomplete profile application",
+                serial
+            );
+            devices.remove(serial);
+            change_found = true;
+        }
+        if !recovering.is_empty() {
+            // Consume notifications from closed sessions before discovery can
+            // open another session with the same serial number.
+            while let Ok(serial) = disconnect_receiver.try_recv() {
+                info!("[{}] Device Disconnected", serial);
+                devices.remove(&serial);
             }
         }
 
@@ -873,7 +913,13 @@ async fn load_device(
 ) -> Result<Device<'_>> {
     let device_copy = device.clone();
 
+    let connection_start = Instant::now();
+    info!("Opening GoXLR USB session (adaptive driver readiness)");
     let mut handled_device = from_device(device, disconnect_sender, event_sender, false)?;
+    info!(
+        "GoXLR USB audio interface initialized in {} ms",
+        connection_start.elapsed().as_millis()
+    );
     let descriptor = handled_device.get_descriptor()?;
 
     let device_type = match descriptor.product_id() {
@@ -931,6 +977,11 @@ async fn load_device(
         .set_device_mic_profile_name(&serial_number, device.mic_profile().name())
         .await;
     settings.save().await;
+    info!(
+        "[{}] GoXLR ready, profiles applied in {} ms since USB open attempt",
+        serial_number,
+        connection_start.elapsed().as_millis()
+    );
     Ok(device)
 }
 

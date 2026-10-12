@@ -1,0 +1,17 @@
+import {t as __tr} from './i18n.mjs';
+import {esc} from './model.mjs';
+
+export const lifecycleKinds={SaveProfile:__tr('Guardar perfil do dispositivo'),SaveMicProfile:__tr('Guardar perfil do microfone'),ReloadSettings:__tr('Recarregar configurações'),LoadProfile:__tr('Carregar perfil do dispositivo'),LoadMicProfile:__tr('Carregar perfil do microfone'),LoadProfileColours:__tr('Carregar apenas cores')};
+export function lifecycleEditor(key,commands,files){
+  const rows=commands.map((cmd,i)=>{const kind=Object.keys(cmd)[0],known=kind in lifecycleKinds,selected=Array.isArray(cmd[kind])?cmd[kind][0]:cmd[kind],list=kind===__tr('LoadMicProfile')?files.mic_profiles:files.profiles;
+    return __tr`<div class="lifecycle-row"><label>Ação ${i+1}<select name="kind-${i}" ${known?'':'disabled'}>${known?Object.entries(lifecycleKinds).map(([v,label])=>`<option value="${v}" ${kind===v?'selected':''}>${label}</option>`).join(''):`<option>${esc(kind||__tr('Comando personalizado'))}</option>`}</select></label>${kind.startsWith(__tr('Load'))&&known?__tr`<label>Perfil<select name="profile-${i}" required>${[...new Set([selected,...(list||[])])].filter(Boolean).map(p=>`<option ${p===selected?'selected':''}>${esc(p)}</option>`).join('')}</select></label>${kind!==__tr('LoadProfileColours')?__tr`<label class="row"><input name="persist-${i}" type="checkbox" ${cmd[kind][1]?'checked':''}> Usar como perfil atual</label>`:''}`:''}${!known?__tr`<p class="note">Comando personalizado conservado: ${esc(JSON.stringify(cmd))}</p>`:''}<div class="toolbar"><button type="button" data-life-move="${i}" data-delta="-1" ${i===0?'disabled':''}>Subir</button><button type="button" data-life-move="${i}" data-delta="1" ${i===commands.length-1?'disabled':''}>Descer</button><button type="button" data-life-remove="${i}">Retirar ação</button></div></div>`;
+  }).join('');
+  return __tr`<form data-lifecycle="${key}" class="lifecycle"><h3>${{shutdown:__tr('Ao encerrar'),sleep:__tr('Ao suspender'),wake:__tr('Ao retomar')}[key]}</h3><p class="note">As ações são executadas pela ordem apresentada.</p>${rows||__tr('<p class="empty">Sem ações automáticas.</p>')}<div class="toolbar"><button type="button" data-life-add>Adicionar ação</button><button type="submit">Guardar ações</button><button type="button" data-life-reset>Repor alterações</button></div></form>`;
+}
+export function readLifecycle(form,previous){return previous.map((cmd,i)=>{const kind=form.elements['kind-'+i].value;if(!(kind in lifecycleKinds))return cmd;if(kind.startsWith(__tr('Load'))){const profile=form.elements['profile-'+i]?.value||'';return {[kind]:kind===__tr('LoadProfileColours')?profile:[profile,Boolean(form.elements['persist-'+i]?.checked)]};}return {[kind]:[]};});}
+export function eqPath(data,ids){return ids.map(id=>({x:40+Math.log10(Math.max(20,Math.min(20000,data.frequency[id]))/20)/3*520,y:95-data.gain[id]*5})).sort((a,b)=>a.x-b.x).map((p,i)=>`${i?__tr('L'):__tr('M')} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');}
+export function eqDefaults(ids){return Object.fromEntries(ids.map(id=>[id,id===__tr('Equalizer31Hz')?31.5:Number(id.replace(__tr('Equalizer'),'').replace(__tr('KHz'),'000').replace(__tr('Hz'),''))]));}
+export function eqGroups(ids){return ids.length===6?[ids.slice(0,2),ids.slice(2,4),ids.slice(4)]:[ids.slice(0,4),ids.slice(4,7),ids.slice(7)];}
+
+export const reverbDecayValues=[...Array.from({length:100},(_,i)=>(i+1)*10),...Array.from({length:190},(_,i)=>1100+i*100)];
+export const reverbDecayIndex=value=>Math.max(0,reverbDecayValues.findLastIndex(v=>v<=value));

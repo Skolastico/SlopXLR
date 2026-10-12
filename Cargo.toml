@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["ui-wrapper/src-tauri"]
 
 members = [
     "launcher",

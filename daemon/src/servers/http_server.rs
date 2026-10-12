@@ -26,6 +26,8 @@ use tokio::sync::oneshot::Sender;
 use tokio::sync::{RwLock, oneshot};
 
 use crate::PatchEvent;
+use crate::SettingsHandle;
+use crate::button_actions::ButtonLayer;
 use crate::files::{FilePaths, find_file_in_path};
 use goxlr_ipc::{
     DaemonRequest, DaemonResponse, DaemonStatus, HttpSettings, Scribble, WebsocketRequest,
@@ -43,6 +45,7 @@ struct AppData {
     usb_tx: DeviceSender,
     broadcast_tx: BroadcastSender<PatchEvent>,
     file_paths: FilePaths,
+    settings_handle: SettingsHandle,
 
     scribble_state: EnumMap<FaderName, ScribbleState>,
 }
@@ -59,12 +62,14 @@ pub async fn spawn_http_server(
     broadcast_tx: tokio::sync::broadcast::Sender<PatchEvent>,
     settings: HttpSettings,
     file_paths: FilePaths,
+    settings_handle: SettingsHandle,
 ) {
     // Create the AppData ONCE, outside the closure
     let app_data = Data::new(RwLock::new(AppData {
         broadcast_tx: broadcast_tx.clone(),
         usb_tx: usb_tx.clone(),
         file_paths: file_paths.clone(),
+        settings_handle,
         scribble_state: EnumMap::default(),
     }));
 
@@ -87,6 +92,15 @@ pub async fn spawn_http_server(
             .service(get_scribble)
             .service(get_path)
             .service(upload_firmware)
+            .service(get_button_layer)
+            .service(set_button_layer)
+            .service(test_button_action)
+            .service(get_application_controls)
+            .service(set_application_controls)
+            .service(get_diagnostics)
+            .service(check_app_update)
+            .service(install_app_update)
+            .service(export_diagnostics_log)
             .default_service(web::to(default))
     })
     .bind((settings.bind_address.clone(), settings.port));
@@ -126,6 +140,341 @@ pub async fn spawn_http_server(
 #[derive(Serialize)]
 struct WsResponse(WebsocketResponse);
 
+#[derive(Serialize)]
+struct ApplicationControlsResponse {
+    applications: Vec<crate::button_actions::ApplicationBinding>,
+    running_applications: Vec<crate::button_actions::RunningApplication>,
+    runtime: crate::button_actions::ApplicationModeStatus,
+    discovery_available: bool,
+    routes: Vec<crate::application_audio::ApplicationRouteStatus>,
+}
+
+#[get("/api/application-controls/{serial}")]
+async fn get_application_controls(
+    req: HttpRequest,
+    serial: web::Path<String>,
+    app_data: Data<RwLock<AppData>>,
+) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden().finish();
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    let applications = settings.get_application_bindings(&serial).await;
+    let runtime = settings.get_application_runtime(&serial).await;
+    let running = crate::application_audio::running_applications().await;
+    let (running_applications, discovery_available) = match running {
+        Ok(applications) => (applications, true),
+        Err(error) => {
+            warn!("Unable to discover Windows audio sessions: {error}");
+            (Vec::new(), false)
+        }
+    };
+    HttpResponse::Ok().json(ApplicationControlsResponse {
+        routes: settings.get_application_routes(&serial).await,
+        applications,
+        running_applications,
+        runtime,
+        discovery_available,
+    })
+}
+
+#[post("/api/application-controls/{serial}")]
+async fn set_application_controls(
+    req: HttpRequest,
+    serial: web::Path<String>,
+    applications: web::Json<Vec<crate::button_actions::ApplicationBinding>>,
+    app_data: Data<RwLock<AppData>>,
+) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden().finish();
+    }
+    let status = match get_status(app_data.clone()).await {
+        Ok(status) => status,
+        Err(error) => return HttpResponse::ServiceUnavailable().body(error.to_string()),
+    };
+    if !status
+        .mixers
+        .get(serial.as_str())
+        .is_some_and(|mixer| mixer.hardware.device_type == goxlr_types::DeviceType::Mini)
+    {
+        return HttpResponse::BadRequest().body("Liga o GoXLR Mini para guardar as aplicações.");
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    match settings
+        .set_application_bindings(serial.into_inner(), applications.into_inner())
+        .await
+    {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({"saved":true})),
+        Err(error) => HttpResponse::BadRequest().body(error.to_string()),
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticEvent {
+    time: String,
+    kind: &'static str,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct DiagnosticSummary {
+    mini_connected: Option<bool>,
+    last_usb_issue: Option<DiagnosticEvent>,
+    recovery: Option<DiagnosticEvent>,
+    recovery_seconds: Option<u64>,
+    events: Vec<DiagnosticEvent>,
+    log_available: bool,
+}
+
+fn is_usb_issue(line: &str) -> bool {
+    line.contains("TSTATUS_")
+        || line.contains("Timeout Awaiting Response")
+        || line.contains("No USB response")
+        || line.contains("USB response channel has closed")
+        || line.contains("USB event handle invalidated")
+        || line.contains("Error Reading Event")
+        || line.contains("USB session has ended")
+        || (line.contains("USB command") && line.contains(" failed;"))
+        || (line.contains("USB response for") && line.contains(" failed;"))
+}
+
+fn diagnostic_recovery(line: &str) -> Option<&'static str> {
+    if line.contains("USB protocol counter resynchronized") {
+        Some("Leitura recuperada após sincronizar a comunicação USB")
+    } else if line.contains("] GoXLR ready, profiles applied in ") {
+        Some("Mini ligado e perfil aplicado")
+    } else {
+        None
+    }
+}
+
+fn diagnostic_event(line: &str, kind: &'static str) -> DiagnosticEvent {
+    let time = line
+        .get(..8)
+        .filter(|time| time.as_bytes().get(2) == Some(&b':'))
+        .unwrap_or("");
+    let message = line
+        .split_once("] ")
+        .map(|(_, message)| message)
+        .unwrap_or(line)
+        .trim();
+    DiagnosticEvent {
+        time: time.to_owned(),
+        kind,
+        message: message.to_owned(),
+    }
+}
+
+fn diagnostic_elapsed_seconds(start: &str, end: &str) -> Option<u64> {
+    let parse = |time: &str| {
+        let mut parts = time.split(':').map(str::parse::<u64>);
+        Some(parts.next()?.ok()? * 3600 + parts.next()?.ok()? * 60 + parts.next()?.ok()?)
+    };
+    let start = parse(start)?;
+    let end = parse(end)?;
+    let seconds = if end >= start {
+        end - start
+    } else {
+        end + 24 * 3600 - start
+    };
+    (seconds <= 30 * 60).then_some(seconds)
+}
+
+#[get("/api/diagnostics")]
+async fn get_diagnostics(req: HttpRequest, app_data: Data<RwLock<AppData>>) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden().finish();
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    let log_directory = settings.get_log_directory().await;
+    let log = fs::read_to_string(log_directory.join("goxlr-daemon.log")).ok();
+    let lines: Vec<&str> = log.as_deref().unwrap_or_default().lines().collect();
+    let issue_index = lines.iter().rposition(|line| is_usb_issue(line));
+    let last_usb_issue = issue_index.map(|index| diagnostic_event(lines[index], "issue"));
+    let recovery_index = issue_index.and_then(|issue| {
+        lines
+            .iter()
+            .enumerate()
+            .skip(issue + 1)
+            .find_map(|(index, line)| diagnostic_recovery(line).map(|_| index))
+    });
+    let recovery = recovery_index.map(|index| {
+        diagnostic_event(
+            lines[index],
+            diagnostic_recovery(lines[index]).unwrap_or("recovery"),
+        )
+    });
+    let recovery_seconds = issue_index
+        .zip(recovery_index)
+        .and_then(|(issue, recovery)| {
+            diagnostic_elapsed_seconds(
+                &diagnostic_event(lines[issue], "issue").time,
+                &diagnostic_event(lines[recovery], "recovery").time,
+            )
+        });
+    let events = lines
+        .iter()
+        .filter_map(|line| {
+            if is_usb_issue(line) {
+                Some(diagnostic_event(line, "issue"))
+            } else if line.contains("] Device Disconnected") {
+                Some(diagnostic_event(line, "disconnect"))
+            } else {
+                diagnostic_recovery(line).map(|kind| diagnostic_event(line, kind))
+            }
+        })
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let status = get_status(app_data).await;
+    let mini_connected = status.ok().map(|status| {
+        status
+            .mixers
+            .values()
+            .any(|mixer| mixer.hardware.device_type == goxlr_types::DeviceType::Mini)
+    });
+    HttpResponse::Ok().json(DiagnosticSummary {
+        mini_connected,
+        last_usb_issue,
+        recovery,
+        recovery_seconds,
+        events,
+        log_available: log.is_some(),
+    })
+}
+
+#[get("/api/diagnostics/log")]
+async fn export_diagnostics_log(req: HttpRequest, app_data: Data<RwLock<AppData>>) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden().finish();
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    let log_directory = settings.get_log_directory().await;
+    match fs::read(log_directory.join("goxlr-daemon.log")) {
+        Ok(log) => HttpResponse::Ok()
+            .content_type("text/plain; charset=utf-8")
+            .insert_header((
+                "Content-Disposition",
+                "attachment; filename=\"goxlr-daemon.log\"",
+            ))
+            .body(log),
+        Err(_) => HttpResponse::NotFound().body("O registo atual ainda não está disponível."),
+    }
+}
+
+fn local_settings_request(req: &HttpRequest) -> bool {
+    let local_peer = req.peer_addr().is_some_and(|peer| peer.ip().is_loopback());
+    let host = req.connection_info().host().to_owned();
+    let local_host = format!("http://{host}")
+        .parse::<actix_web::http::Uri>()
+        .ok()
+        .and_then(|uri| uri.host().map(str::to_owned))
+        .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]"));
+    let same_origin = req.headers().get("Origin").is_none_or(|origin| {
+        origin
+            .to_str()
+            .is_ok_and(|origin| origin == format!("http://{host}"))
+    });
+    local_peer && local_host && same_origin
+}
+
+#[get("/api/button-actions/{serial}")]
+async fn get_button_layer(
+    req: HttpRequest,
+    serial: web::Path<String>,
+    app_data: Data<RwLock<AppData>>,
+) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden()
+            .body("Abre as ações neste computador através de localhost.");
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    let mut layer = serde_json::to_value(settings.get_button_layer(&serial).await).unwrap();
+    layer["runtime"] = serde_json::to_value(settings.get_button_runtime(&serial).await).unwrap();
+    layer["last_result"] = serde_json::to_value(settings.get_action_report(&serial).await).unwrap();
+    HttpResponse::Ok().json(layer)
+}
+
+#[post("/api/button-actions/{serial}")]
+async fn set_button_layer(
+    req: HttpRequest,
+    serial: web::Path<String>,
+    layer: web::Json<ButtonLayer>,
+    app_data: Data<RwLock<AppData>>,
+) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden()
+            .body("Abre as ações neste computador através de localhost.");
+    }
+    if let Err(error) = layer.validate() {
+        return HttpResponse::BadRequest().body(error.to_string());
+    }
+    let status = match get_status(app_data.clone()).await {
+        Ok(status) => status,
+        Err(error) => return HttpResponse::ServiceUnavailable().body(error.to_string()),
+    };
+    if !status
+        .mixers
+        .get(serial.as_str())
+        .is_some_and(|mixer| mixer.hardware.device_type == goxlr_types::DeviceType::Mini)
+    {
+        return HttpResponse::BadRequest().body("Liga o GoXLR Mini para guardar as ações.");
+    }
+    for action in layer.pages.iter().flat_map(|page| &page.actions) {
+        if let crate::button_actions::ButtonAction::LoadProfile { profile } = action
+            && !status.files.profiles.contains(profile)
+        {
+            return HttpResponse::BadRequest()
+                .body("O perfil escolhido já não está disponível. Escolhe outro perfil.");
+        }
+    }
+    let settings = app_data.read().await.settings_handle.clone();
+    match settings
+        .set_button_layer(serial.into_inner(), layer.into_inner())
+        .await
+    {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({"saved": true})),
+        Err(error) => HttpResponse::InternalServerError().body(error.to_string()),
+    }
+}
+
+#[post("/api/button-actions/{serial}/test")]
+async fn test_button_action(
+    req: HttpRequest,
+    serial: web::Path<String>,
+    action: web::Json<crate::button_actions::ButtonAction>,
+    app_data: Data<RwLock<AppData>>,
+) -> HttpResponse {
+    if !local_settings_request(&req) {
+        return HttpResponse::Forbidden().finish();
+    }
+    if let Err(error) = action.validate() {
+        return HttpResponse::BadRequest().body(error.to_string());
+    }
+    let tx = app_data.read().await.usb_tx.clone();
+    let (sender, receiver) = oneshot::channel();
+    if tx
+        .send(DeviceCommand::RunButtonAction(
+            serial.into_inner(),
+            action.into_inner(),
+            sender,
+        ))
+        .await
+        .is_err()
+    {
+        return HttpResponse::ServiceUnavailable().body("O serviço não respondeu.");
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(5), receiver).await {
+        Ok(Ok(Ok(()))) => HttpResponse::Ok().json(serde_json::json!({"executed":true})),
+        Ok(Ok(Err(error))) => HttpResponse::BadRequest().body(error.to_string()),
+        _ => HttpResponse::ServiceUnavailable()
+            .body("Não foi possível confirmar a execução. Não repitas até verificar o resultado."),
+    }
+}
+
 #[get("/api/websocket")]
 async fn websocket(
     app_data: Data<RwLock<AppData>>,
@@ -137,6 +486,7 @@ async fn websocket(
     let data = app_data.read().await;
     let mut usb_tx = data.usb_tx.clone();
     let mut broadcast_rx = data.broadcast_tx.subscribe();
+    let mut control_rx = data.settings_handle.subscribe_control_updates();
 
     // Spawn the handler (this is now where we do stuff)
     actix_web::rt::spawn(async move {
@@ -144,6 +494,17 @@ async fn websocket(
 
         let close_reason = loop {
             tokio::select! {
+                Ok(()) = control_rx.changed() => {
+                    // An empty JSON patch is compatible with existing clients;
+                    // it tells the redesign to refresh its separate control endpoints.
+                    let message = WsResponse(WebsocketResponse {
+                        id: u64::MAX,
+                        data: DaemonResponse::Patch(json_patch::Patch(vec![])),
+                    });
+                    if let Err(e) = send_response(message, &mut session).await {
+                        break e;
+                    }
+                }
                 Ok(patch) = broadcast_rx.recv() => {
                     let message = WsResponse(WebsocketResponse {
                         id: u64::MAX,
@@ -435,7 +796,7 @@ async fn get_scribble(
     HttpResponse::NotFound().finish()
 }
 
-#[get("/files/samples/{sample}")]
+#[get("/files/samples/{sample:.*}")]
 async fn get_sample(sample: web::Path<String>, app_data: Data<RwLock<AppData>>) -> HttpResponse {
     // Get the Base Samples Path..
     let sample_path = {
@@ -526,7 +887,7 @@ async fn upload_firmware(
 
 async fn default(req: HttpRequest) -> HttpResponse {
     let path = if req.path() == "/" || req.path() == "" {
-        "/index.html"
+        "/redesign.html"
     } else {
         req.path()
     };
@@ -550,5 +911,64 @@ async fn get_status(app_data: Data<RwLock<AppData>>) -> Result<DaemonStatus> {
     match result {
         DaemonResponse::Status(status) => Ok(status),
         _ => Err(anyhow!("Unexpected Daemon Status Result: {:?}", result)),
+    }
+}
+
+#[cfg(test)]
+mod button_layer_request_tests {
+    use super::local_settings_request;
+    use actix_web::test::TestRequest;
+
+    #[test]
+    fn local_same_origin_is_allowed_but_remote_and_lookalike_hosts_are_rejected() {
+        let make = |host: &str, origin: &str, peer: &str| {
+            TestRequest::default()
+                .insert_header(("Host", host))
+                .insert_header(("Origin", origin))
+                .peer_addr(peer.parse().unwrap())
+                .to_http_request()
+        };
+        assert!(local_settings_request(&make(
+            "localhost:14564",
+            "http://localhost:14564",
+            "127.0.0.1:40000"
+        )));
+        assert!(local_settings_request(&make(
+            "127.0.0.1:14564",
+            "http://127.0.0.1:14564",
+            "127.0.0.1:40000"
+        )));
+        assert!(!local_settings_request(&make(
+            "localhost:14564",
+            "http://localhost.evil:14564",
+            "127.0.0.1:40000"
+        )));
+        assert!(!local_settings_request(&make(
+            "localhost.evil:14564",
+            "http://localhost.evil:14564",
+            "127.0.0.1:40000"
+        )));
+        assert!(!local_settings_request(&make(
+            "localhost:14564",
+            "http://localhost:14564",
+            "192.168.1.2:40000"
+        )));
+    }
+}
+
+#[get("/api/app-update")]
+async fn check_app_update(req: HttpRequest) -> HttpResponse {
+    if !local_settings_request(&req) { return HttpResponse::Forbidden().finish(); }
+    HttpResponse::Ok().json(crate::updates::check().await)
+}
+#[post("/api/app-update")]
+async fn install_app_update(req: HttpRequest, body: web::Json<Value>) -> HttpResponse {
+    if !local_settings_request(&req) { return HttpResponse::Forbidden().finish(); }
+    let Some(version) = body.get("version").and_then(Value::as_str) else {
+        return HttpResponse::BadRequest().json(serde_json::json!({"Error":"Missing version"}));
+    };
+    match crate::updates::install(version) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({"started":true})),
+        Err(error) => HttpResponse::BadRequest().json(serde_json::json!({"Error":error.to_string()}))
     }
 }

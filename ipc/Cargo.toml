@@ -26,3 +26,6 @@ async-trait = "0.1.89"
 
 # Used for Web Requests
 reqwest = { workspace = true, features = ["json"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

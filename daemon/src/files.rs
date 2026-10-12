@@ -350,15 +350,18 @@ fn create_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resu
 }
 
 pub fn find_file_in_path(path: PathBuf, file: PathBuf) -> Option<PathBuf> {
-    let format = format!("{}/**/{}", path.to_string_lossy(), file.to_string_lossy());
-    let files = glob(format.as_str());
-    if let Ok(files) = files
-        && let Some(file) = files.into_iter().next()
-    {
-        return Some(file.unwrap());
+    if file.is_absolute() || file.components().any(|p| matches!(p, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) { return None; }
+    let root = path.canonicalize().ok()?;
+    let direct = root.join(&file);
+    if let Ok(found) = direct.canonicalize() {
+        if found.starts_with(&root) && found.is_file() { return Some(found); }
+        return None;
     }
-
-    None
+    // Older profiles only stored a basename. Keep resolving those recursively.
+    let base = glob::Pattern::escape(&path.to_string_lossy().replace('\\', "/"));
+    let name = glob::Pattern::escape(&file.to_string_lossy().replace('\\', "/"));
+    glob(&format!("{base}/**/{name}")).ok()?.filter_map(Result::ok)
+        .filter_map(|p| p.canonicalize().ok()).find(|p| p.starts_with(&root) && p.is_file())
 }
 
 pub fn create_path(path: &Path) -> Result<()> {
@@ -452,4 +455,20 @@ pub fn extract_defaults(file_type: PathTypes, path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod sample_path_tests {
+    use super::*;
+    #[test]
+    fn nested_samples_are_literal_and_cannot_leave_the_library() {
+        let root = std::env::temp_dir().join(format!("goxlr-sample-path-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        std::fs::write(root.join("folder/sound[1].wav"),b"test").unwrap();
+        assert_eq!(find_file_in_path(root.clone(),PathBuf::from("folder/sound[1].wav")),Some(root.join("folder/sound[1].wav").canonicalize().unwrap()));
+        assert!(find_file_in_path(root.clone(),PathBuf::from("sound[1].wav")).is_some());
+        assert!(find_file_in_path(root.clone(),PathBuf::from("../settings.json")).is_none());
+        assert!(find_file_in_path(root.clone(),root.join("folder/sound[1].wav")).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diagnóstico · GoXLR Utility</title>
+  <link rel="stylesheet" href="/diagnostics.css">
+  <script type="module" src="/diagnostics.js"></script>
+</head>
+<body>
+  <header class="app-header"><a href="/" class="brand">GoXLR <span>Utility</span></a><nav aria-label="Utilitários"><a href="/button-actions.html">Ações dos botões</a><a href="/">Voltar à aplicação</a></nav></header>
+  <main>
+    <div class="page-heading"><div><h1>Diagnóstico</h1><p>Estado do Mini e eventos recentes da ligação USB.</p></div><div class="controls"><button id="refresh" type="button">Atualizar</button><a id="export" class="button" href="/api/diagnostics/log" download="goxlr-daemon.log">Exportar registo</a></div></div>
+    <p id="feedback" role="status" aria-live="polite" class="subtle">A consultar o registo…</p>
+    <dl class="summary" aria-label="Resumo da ligação">
+      <div><dt>GoXLR Mini</dt><dd id="connection">A consultar…</dd></div>
+      <div><dt>Última falha USB</dt><dd id="last-issue">A consultar…</dd></div>
+      <div><dt>Recuperação</dt><dd id="recovery">A consultar…</dd></div>
+    </dl>
+    <section aria-labelledby="events-title"><h2 id="events-title">Eventos recentes</h2><ol id="events" class="events"><li class="subtle">A carregar…</li></ol></section>
+    <p class="footnote">O registo é lido e exportado localmente. Os tempos são aproximados ao segundo, conforme a precisão do registo.</p>
+  </main>
+</body>
+</html>

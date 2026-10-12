@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ações dos botões · GoXLR Utility</title>
+  <link rel="stylesheet" href="/button-actions.css">
+  <script type="module" src="/button-actions.js"></script>
+</head>
+<body>
+  <header class="app-header"><a href="/" class="brand">GoXLR <span>Utility</span></a><nav aria-label="Utilitários"><a href="/application-controls.html">Aplicações</a><a href="/diagnostics.html">Diagnóstico</a><a href="/">Voltar à aplicação</a></nav></header>
+  <main>
+    <div class="page-heading"><div><h1>Ações dos botões</h1><p>Os mesmos botões. Uma segunda função quando precisas.</p></div><label class="device-label" for="device">Dispositivo<select id="device" disabled><option>A procurar o Mini…</option></select></label></div>
+    <form id="actions-form">
+      <section class="layer-setting" aria-labelledby="layer-title">
+        <div><h2 id="layer-title">Modo de ações com páginas</h2><p>Mantém o mute temporário premido durante 0,7 segundos para entrar ou sair. Dentro do modo, dois cliques avançam uma página e três recuam.</p><p class="subtle">Fora do modo, os botões têm as funções normais. O mute momentâneo pode silenciar o microfone durante a deteção da pressão longa; ao entrar, esse mute é libertado.</p></div>
+        <label class="switch-label"><input id="enabled" type="checkbox" disabled><span>Ativar navegação</span></label>
+      </section>
+      <section class="page-editor" aria-labelledby="pages-title">
+        <h2 id="pages-title">As tuas páginas</h2><p class="subtle">Cria quantas precisares. Cada página tem cinco ações. As alterações só ficam guardadas quando carregares em Guardar alterações.</p>
+        <div class="page-fields"><label>Página a editar<select id="page-select"></select></label><label>Nome da página<input id="page-name" type="text" maxlength="100"></label></div>
+        <div class="page-buttons"><button id="add-page" type="button">Adicionar página</button><button id="duplicate-page" type="button">Duplicar página</button><button id="remove-page" type="button">Remover página</button></div>
+        <h3>Cores do botão de navegação</h3><p class="subtle">Estas cores identificam a página ativa no Mini. Para A–D e Bleep, escolhe as cores junto de cada ação. Ao sair do modo de ações, voltam as cores do perfil.</p><div id="navigation-colours"></div>
+      </section>
+      <div class="configuration-layout">
+        <aside aria-label="Estado dos botões do Mini">
+          <div class="mini-panel"><h2>GoXLR Mini</h2><div class="fader-diagram" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="button-diagram"><span data-hardware="Fader1Mute">A</span><span data-hardware="Fader2Mute">B</span><span data-hardware="Fader3Mute">C</span><span data-hardware="Fader4Mute">D</span></div><div class="bottom-buttons"><span data-hardware="Bleep">Bleep</span><span data-hardware="Cough">Navegação</span></div></div>
+          <p id="layer-state" class="live-state">A ligar ao dispositivo…</p><p class="subtle">No modo de ações, basta tocar em A–D ou Bleep. Não precisas de manter o mute premido. Fora dele, regressam as funções originais.</p>
+        </aside>
+        <section class="bindings" aria-labelledby="bindings-title"><h2 id="bindings-title">Escolhe as ações</h2><p class="subtle">Testar executa a ação escolhida agora, mesmo antes de guardar. Os atalhos vão para a aplicação que estiver ativa. Para silenciar só a música, escolhe o fader associado a Música.</p><p id="action-result" role="status" aria-live="polite" class="subtle"></p><div id="rows"></div></section>
+      </div>
+      <footer class="save-bar"><p id="message" role="status" aria-live="polite">A carregar configurações…</p><div><button id="reset" type="button" disabled>Repor alterações</button><button id="save" type="submit" disabled>Guardar alterações</button></div></footer>
+    </form>
+    <p class="footnote">Atalhos e ações multimédia são enviados pelo Windows. Algumas aplicações abertas como administrador podem não os aceitar.</p>
+  </main>
+</body>
+</html>

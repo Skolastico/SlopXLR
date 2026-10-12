@@ -9,3 +9,10 @@
 
 # Used by CI to make distributables
 /deployment
+
+/dist/
+**/target/
+**/__pycache__/
+*.key.xml
+redesign-ativo.png
+redesign-preview.png

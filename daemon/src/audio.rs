@@ -21,6 +21,7 @@ use strum::IntoEnumIterator;
 #[derive(Debug)]
 pub struct AudioHandler {
     output_device: Option<String>,
+    mini: bool,
 
     buffered_input: Option<Arc<BufferedRecorder>>,
 
@@ -106,6 +107,7 @@ impl AudioHandler {
         // Find the Input Device..
         let mut handler = Self {
             output_device: None,
+            mini: false,
 
             buffered_input: None,
 
@@ -133,7 +135,14 @@ impl AudioHandler {
         Ok(handler)
     }
 
+    pub fn new_mini() -> Self {
+        let mut handler = Self { output_device: None, mini: true, buffered_input: None, last_device_check: None, active_streams: EnumMap::default(), process_task: None };
+        handler.find_device(true);
+        handler
+    }
+
     pub fn update_record_buffer(&mut self, recorder_buffer: u16) -> Result<()> {
+        if self.mini { bail!("O Mini reproduz ficheiros por software; não dispõe de gravação do sampler físico."); }
         if let Some(recorder) = &self.buffered_input {
             recorder.stop();
         }
@@ -154,6 +163,9 @@ impl AudioHandler {
     }
 
     fn get_output_device_patterns(&self) -> Vec<Regex> {
+        if self.mini {
+            return vec![Regex::new(r"^WASAPI\*System.*(?i:GoXLR Mini)").unwrap(), Regex::new(r"^CoreAudio\*System.*Mini").unwrap(), Regex::new(r"(?i:GoXLR_Mini).*HiFi__Line1__sink").unwrap()];
+        }
         let override_output = OVERRIDE_SAMPLER_OUTPUT.lock().unwrap().deref().clone();
         if let Some(device) = override_output {
             return vec![Regex::new(&device).expect("Invalid Regex in Audio Handler")];
@@ -655,4 +667,18 @@ pub struct CalculationResult {
     pub bank: SampleBank,
     pub button: SampleButtons,
     pub gain: f64,
+}
+
+#[cfg(test)]
+mod mini_tests {
+    use super::*;
+    #[test]
+    fn mini_sampler_uses_system_and_never_initializes_a_recorder() {
+        let mut handler = AudioHandler::new_mini();
+        assert!(handler.buffered_input.is_none());
+        let patterns = handler.get_output_device_patterns();
+        assert!(patterns.iter().any(|p| p.is_match("WASAPI*System (TC-Helicon GoXLR Mini)").unwrap()));
+        assert!(!patterns.iter().any(|p| p.is_match("WASAPI*System (TC-Helicon GoXLR)").unwrap()));
+        assert!(handler.update_record_buffer(100).is_err());
+    }
 }

@@ -9,15 +9,14 @@ use crate::device::tusb::tusbaudio::{
 use anyhow::{Result, bail};
 use byteorder::{ByteOrder, LittleEndian};
 use goxlr_types::{DriverInterface, VersionNumber};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::mpsc::error::TryRecvError;
 
 pub struct TUSBAudioGoXLR {
     // Basic Device Information..
@@ -35,6 +34,7 @@ pub struct TUSBAudioGoXLR {
 
     // Thread states
     stopped: Arc<AtomicBool>,
+    event_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl TUSBAudioGoXLR {
@@ -52,37 +52,39 @@ impl TUSBAudioGoXLR {
         self.handle.read_response(request, value, index, length)
     }
 
-    fn trigger_disconnect(&self) {
-        let _ = self.handle.close_handle();
+    fn trigger_disconnect(&mut self) {
         self.stopped.store(true, Ordering::Relaxed);
+        // A failed profile may issue several commands before the daemon removes the device.
+        // Close and announce this session only once.
+        if !self.handle.is_open() {
+            return;
+        }
+        let _ = self.handle.close_handle();
 
         if let Some(daemon_identifier) = &*self.daemon_identifier.lock().unwrap() {
             let _ = self.disconnect_sender.try_send(daemon_identifier.clone());
         }
     }
 
-    fn await_data(&mut self) -> bool {
-        // This is probably not the smartest way of doing this, but attempting to use a tokio future
-        // against block_on can cause some weird runtime issues, and never resolve. Given that we
-        // know a read event will return incredibly quickly, we can slap a loop in to wait for the
-        // data.
-
-        let timeout = Instant::now() + Duration::from_secs(1);
-        loop {
-            if Instant::now() > timeout {
-                // We've hit a timeout, don't infinite loop, instead throw as error.
+    fn await_data(receiver: &Mutex<mpsc::Receiver<bool>>, stopped: &AtomicBool) -> bool {
+        if stopped.load(Ordering::Relaxed) {
+            return false;
+        }
+        // A native channel wakes as soon as the event thread responds, without spinning
+        // or imposing a polling delay on every configuration command.
+        match receiver
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(1))
+        {
+            Ok(result) => result && !stopped.load(Ordering::Relaxed),
+            Err(RecvTimeoutError::Timeout) => {
                 warn!("Timeout Awaiting Response..");
-                return false;
+                false
             }
-
-            let result = self.event_receivers.data_read.try_recv();
-            match result {
-                Ok(result) => break result,
-                Err(TryRecvError::Disconnected) => {
-                    warn!("Channel has been Disconnected");
-                    break false;
-                }
-                Err(_) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                warn!("USB response channel has closed");
+                false
             }
         }
     }
@@ -106,6 +108,41 @@ impl TUSBAudioGoXLR {
     }
 }
 
+impl Drop for TUSBAudioGoXLR {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Relaxed);
+        let _ = self.handle.close_handle();
+        if let Some(event_thread) = self.event_thread.take() {
+            let _ = event_thread.join();
+        }
+        TUSB_INTERFACE.request_device_refresh();
+    }
+}
+
+// Only probe vendor-interface readiness again; never replay a reset or profile command.
+fn activate_vendor_interface(
+    mut read_packet: impl FnMut() -> Result<Vec<u8>>,
+    retry_window: Duration,
+) -> Result<()> {
+    let deadline = Instant::now() + retry_window;
+    loop {
+        match read_packet() {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                if error.to_string() != "TSTATUS_USBD_STATUS_STALL_PID"
+                    || Instant::now() >= deadline
+                {
+                    return Err(error);
+                }
+                sleep(
+                    Duration::from_millis(50)
+                        .min(deadline.saturating_duration_since(Instant::now())),
+                );
+            }
+        }
+    }
+}
+
 impl AttachGoXLR for TUSBAudioGoXLR {
     fn from_device(
         device: GoXLRDevice,
@@ -116,24 +153,21 @@ impl AttachGoXLR for TUSBAudioGoXLR {
     where
         Self: Sized,
     {
-        if !skip_pause {
-            // Before we do anything, wait 1second in case the GoXLR is still calibrating..
-            sleep(Duration::from_millis(2000));
-        }
-
         let mut device_identifier = None;
         if let Some(identifier) = &device.identifier {
             device_identifier = Some(identifier.clone());
         }
 
-        let handle = DeviceHandle::from_device(device)?;
+        let handle = DeviceHandle::from_device(device).inspect_err(|_| {
+            TUSB_INTERFACE.request_device_refresh();
+        })?;
 
         // Spawn the Event handler thread..
-        let (data_sender, data_receiver) = mpsc::channel(1);
+        let (data_sender, data_receiver) = mpsc::channel();
 
         // In this case, we spawn a thread to manage windows events..
         let event_receivers = EventChannelReceiver {
-            data_read: data_receiver,
+            data_read: Mutex::new(data_receiver),
         };
 
         let mut goxlr = Box::new(Self {
@@ -149,6 +183,7 @@ impl AttachGoXLR for TUSBAudioGoXLR {
             daemon_identifier: Arc::new(Mutex::new(None)),
 
             stopped: Arc::new(AtomicBool::new(false)),
+            event_thread: None,
         });
 
         let (ready_sender, ready_recv) = tokio::sync::oneshot::channel();
@@ -161,7 +196,7 @@ impl AttachGoXLR for TUSBAudioGoXLR {
             // Clone it so we can move it into the thread..
             let thread_device_identifier = thread_device_identifier.clone();
 
-            thread::spawn(move || {
+            goxlr.event_thread = Some(thread::spawn(move || {
                 let sender = EventChannelSender {
                     ready_notifier: ready_sender,
                     data_read: data_sender,
@@ -169,13 +204,17 @@ impl AttachGoXLR for TUSBAudioGoXLR {
                 };
 
                 // Spawn the Event Loop..
-                let _ = TUSB_INTERFACE.event_loop(
+                let result = TUSB_INTERFACE.event_loop(
                     thread_device_identifier.clone(),
                     thread_daemon_identifier,
                     sender,
-                    thread_stopped,
+                    thread_stopped.clone(),
                 );
-            });
+                thread_stopped.store(true, Ordering::Relaxed);
+                if let Err(error) = result {
+                    warn!("USB event monitor failed: {}", error);
+                }
+            }));
         } else {
             bail!("Unable to Create Event Loop, Device Identifier not set!");
         }
@@ -187,7 +226,20 @@ impl AttachGoXLR for TUSBAudioGoXLR {
         }
 
         // Activate the Vendor interface, also initialises audio on Windows!
-        if let Err(error) = goxlr.handle.read_response(0, 0, 0, 24) {
+        let readiness_window = if skip_pause {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(2)
+        };
+        if let Err(error) = activate_vendor_interface(
+            || {
+                if goxlr.stopped.load(Ordering::Relaxed) {
+                    bail!("USB session ended during audio-interface activation");
+                }
+                goxlr.handle.read_response(0, 0, 0, 24)
+            },
+            readiness_window,
+        ) {
             goxlr.stopped.store(true, Ordering::Relaxed);
             bail!("Error Reading Initial Packet: {}", error);
         }
@@ -199,7 +251,7 @@ impl AttachGoXLR for TUSBAudioGoXLR {
         }
 
         // Wait for the response event, then read..
-        if !goxlr.await_data() {
+        if !Self::await_data(&goxlr.event_receivers.data_read, &goxlr.stopped) {
             bail!("Error received from Event Handler..");
         }
 
@@ -217,25 +269,9 @@ impl AttachGoXLR for TUSBAudioGoXLR {
     }
 
     fn is_connected(&mut self) -> bool {
-        // We need to verify and restore our handle if it's broken..
-        if let Err(error) = self.handle.get_device_id_string() {
-            debug!(
-                "Connection Error: {}, attempting to create new handle..",
-                error
-            );
-            let new_handle = DeviceHandle::from_device(GoXLRDevice {
-                bus_number: 0,
-                address: 0,
-                identifier: self.identifier.clone(),
-            });
-
-            if new_handle.is_err() {
-                warn!("Unable to create new handle.");
-                return false;
-            }
-
-            debug!("New Handle Created.");
-            self.handle = new_handle.unwrap();
+        if self.stopped.load(Ordering::Relaxed) || self.handle.get_device_id_string().is_err() {
+            self.trigger_disconnect();
+            return false;
         }
         true
     }
@@ -247,6 +283,10 @@ impl AttachGoXLR for TUSBAudioGoXLR {
 
 impl ExecutableGoXLR for TUSBAudioGoXLR {
     fn perform_request(&mut self, command: Command, body: &[u8], retry: bool) -> Result<Vec<u8>> {
+        if self.stopped.load(Ordering::Relaxed) {
+            self.trigger_disconnect();
+            bail!("USB session has ended; waiting for reinitialization");
+        }
         if command == Command::ResetCommandIndex {
             self.command_count = 0;
         } else {
@@ -264,56 +304,47 @@ impl ExecutableGoXLR for TUSBAudioGoXLR {
         full_request.extend(body);
 
         if let Err(error) = self.write_control(2, 0, 0, &full_request) {
-            if error.to_string() == "TSTATUS_INVALID_HANDLE" {
-                if self.is_connected() {
-                    // Try again..
-                    if let Err(error) = self.write_control(2, 0, 0, &full_request) {
-                        self.trigger_disconnect();
-                        bail!(
-                            "Recovered Handle, but still unable to send command: {}",
-                            error
-                        );
-                    }
-                } else {
-                    self.trigger_disconnect();
-                    bail!("GoXLR has been Disconnected.");
-                }
-            } else {
-                // Unknown Error,
-                self.trigger_disconnect();
-                bail!("Unknown Error, Disconnecting: {}", error);
+            // A button-state request only reads current device state. If its USB write
+            // times out but the session is still valid, reset the protocol counter and
+            // retry this read once. All other commands retain full-session recovery.
+            if command == Command::GetButtonStates
+                && !retry
+                && error.to_string() == "TSTATUS_TIMEOUT"
+                && self.is_connected()
+            {
+                warn!("GetButtonStates write timed out; attempting one protocol resynchronization");
+                self.perform_request(Command::ResetCommandIndex, &[], true)?;
+                info!("USB protocol counter resynchronized; retrying GetButtonStates once");
+                return self.perform_request(command, body, true);
             }
+
+            // Reopening a handle alone bypasses vendor-interface activation and preserves
+            // the command index from the previous USB session. Let the daemon initialize anew.
+            self.trigger_disconnect();
+            bail!(
+                "USB command {:?} failed; reinitializing: {}",
+                command,
+                error
+            );
         }
 
         // We will sit here, and wait for a response.. this may take a few cycles..
-        if !self.await_data() {
+        if !Self::await_data(&self.event_receivers.data_read, &self.stopped) {
             self.trigger_disconnect();
-            bail!("Event handler has ended, Disconnecting.");
+            bail!("No USB response for {:?}; reinitializing", command);
         }
 
-        let mut response_value = self.read_control(3, 0, 0, 1040);
-        if let Err(error) = response_value {
-            if error.to_string() == "TSTATUS_INVALID_HANDLE" {
-                if self.is_connected() {
-                    response_value = self.read_control(3, 0, 0, 1040);
-                    if let Err(error) = response_value {
-                        self.trigger_disconnect();
-                        bail!(
-                            "Recovered Handle, but still unable to read command response: {}",
-                            error
-                        );
-                    }
-                } else {
-                    self.trigger_disconnect();
-                    bail!("GoXLR has been Disconnected while Reading Response");
-                }
-            } else {
+        let mut response_header = match self.read_control(3, 0, 0, 1040) {
+            Ok(response) => response,
+            Err(error) => {
                 self.trigger_disconnect();
-                bail!("Unknown Error while Reading, Disconnecting: {}", error);
+                bail!(
+                    "USB response for {:?} failed; reinitializing: {}",
+                    command,
+                    error
+                );
             }
-        }
-
-        let mut response_header = response_value?;
+        };
         if response_header.len() < 16 {
             error!(
                 "Invalid Response received from the GoXLR, Expected: 16, Received: {}",
@@ -375,4 +406,133 @@ pub fn find_devices() -> Vec<GoXLRDevice> {
 
 pub fn get_interface_version() -> (DriverInterface, Option<VersionNumber>) {
     (DriverInterface::TUSB, get_version())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_interface_activates_without_calibration_delay() {
+        let mut reads = 0;
+        let start = Instant::now();
+        activate_vendor_interface(
+            || {
+                reads += 1;
+                Ok(vec![0; 24])
+            },
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(reads, 1);
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn calibrating_interface_can_become_ready() {
+        let mut reads = 0;
+        activate_vendor_interface(
+            || {
+                reads += 1;
+                if reads < 3 {
+                    bail!("TSTATUS_USBD_STATUS_STALL_PID");
+                }
+                Ok(vec![0; 24])
+            },
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(reads, 3);
+    }
+
+    #[test]
+    fn invalid_handle_and_unknown_errors_are_not_retried() {
+        for error in ["TSTATUS_INVALID_HANDLE", "Unexpected driver error"] {
+            let mut reads = 0;
+            let result = activate_vendor_interface(
+                || {
+                    reads += 1;
+                    bail!("{}", error);
+                },
+                Duration::from_secs(2),
+            );
+            assert!(result.is_err());
+            assert_eq!(reads, 1);
+        }
+    }
+
+    #[test]
+    fn skip_pause_disables_readiness_retries() {
+        let mut reads = 0;
+        let result = activate_vendor_interface(
+            || {
+                reads += 1;
+                bail!("TSTATUS_USBD_STATUS_STALL_PID");
+            },
+            Duration::ZERO,
+        );
+        assert!(result.is_err());
+        assert_eq!(reads, 1);
+    }
+
+    #[test]
+    fn readiness_retries_stop_at_deadline() {
+        let mut reads = 0;
+        let result = activate_vendor_interface(
+            || {
+                reads += 1;
+                bail!("TSTATUS_USBD_STATUS_STALL_PID");
+            },
+            Duration::from_millis(10),
+        );
+        assert!(result.is_err());
+        assert!((1..=2).contains(&reads));
+    }
+
+    #[test]
+    fn response_from_stopped_session_is_rejected() {
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        sender.send(true).unwrap();
+        let stopped = AtomicBool::new(true);
+        assert!(!TUSBAudioGoXLR::await_data(&receiver, &stopped));
+        assert_eq!(receiver.lock().unwrap().try_recv(), Ok(true));
+    }
+
+    #[test]
+    fn response_received_after_wait_is_accepted() {
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        let sender_thread = thread::spawn(move || {
+            sleep(Duration::from_millis(20));
+            sender.send(true).unwrap();
+        });
+        let stopped = AtomicBool::new(false);
+        assert!(TUSBAudioGoXLR::await_data(&receiver, &stopped));
+        sender_thread.join().unwrap();
+    }
+
+    #[test]
+    fn closed_response_channel_returns_without_waiting_for_timeout() {
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        drop(sender);
+        let start = Instant::now();
+        assert!(!TUSBAudioGoXLR::await_data(
+            &receiver,
+            &AtomicBool::new(false)
+        ));
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn disconnect_response_is_rejected() {
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        sender.send(false).unwrap();
+        assert!(!TUSBAudioGoXLR::await_data(
+            &receiver,
+            &AtomicBool::new(false)
+        ));
+    }
 }

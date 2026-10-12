@@ -1,3 +1,7 @@
+use crate::button_actions::{
+    ActionReport, ApplicationBinding, ApplicationModeStatus, ButtonLayer, LayerRuntime,
+    assign_application_slots, validate_application_bindings,
+};
 use crate::mic_profile::DEFAULT_MIC_PROFILE_NAME;
 use crate::profile::DEFAULT_PROFILE_NAME;
 use anyhow::{Context, Result};
@@ -13,13 +17,19 @@ use std::fs::{File, create_dir_all};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, watch};
 
 #[derive(Debug, Clone)]
 pub struct SettingsHandle {
     path: PathBuf,
     data_dir: PathBuf,
     settings: Arc<RwLock<Settings>>,
+    button_runtime: Arc<RwLock<HashMap<String, LayerRuntime>>>,
+    action_reports: Arc<RwLock<HashMap<String, ActionReport>>>,
+    control_updates: watch::Sender<()>,
+    application_runtime: Arc<RwLock<HashMap<String, ApplicationModeStatus>>>,
+    application_routes:
+        Arc<RwLock<HashMap<String, Vec<crate::application_audio::ApplicationRouteStatus>>>>,
 }
 
 enum Paths {
@@ -75,6 +85,8 @@ impl SettingsHandle {
                 firmware_source: None,
                 devices: Some(Default::default()),
                 sample_gain: Some(Default::default()),
+                button_layers: HashMap::new(),
+                application_bindings: HashMap::new(),
             }
         });
 
@@ -158,6 +170,11 @@ impl SettingsHandle {
             path,
             data_dir: data_dir.to_path_buf(),
             settings: Arc::new(RwLock::new(settings)),
+            button_runtime: Arc::new(RwLock::new(HashMap::new())),
+            action_reports: Arc::new(RwLock::new(HashMap::new())),
+            control_updates: watch::channel(()).0,
+            application_runtime: Arc::new(RwLock::new(HashMap::new())),
+            application_routes: Arc::new(RwLock::new(HashMap::new())),
         };
         handle.save().await;
         Ok(handle)
@@ -171,6 +188,139 @@ impl SettingsHandle {
                 self.path.to_string_lossy(),
                 e
             );
+        }
+    }
+
+    pub async fn get_button_layer(&self, serial: &str) -> ButtonLayer {
+        self.settings
+            .read()
+            .await
+            .button_layers
+            .get(serial)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub async fn get_button_runtime(&self, serial: &str) -> LayerRuntime {
+        self.button_runtime
+            .read()
+            .await
+            .get(serial)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub async fn get_action_report(&self, serial: &str) -> Option<ActionReport> {
+        self.action_reports.read().await.get(serial).cloned()
+    }
+
+    pub async fn set_action_report(&self, serial: &str, report: ActionReport) {
+        let mut values = self.action_reports.write().await;
+        if values.get(serial) != Some(&report) {
+            values.insert(serial.to_owned(), report);
+            self.control_updates.send_replace(());
+        }
+    }
+
+    pub fn subscribe_control_updates(&self) -> watch::Receiver<()> {
+        self.control_updates.subscribe()
+    }
+
+    pub async fn set_button_runtime(&self, serial: &str, runtime: LayerRuntime) {
+        let mut values = self.button_runtime.write().await;
+        if values.get(serial) != Some(&runtime) {
+            values.insert(serial.to_owned(), runtime);
+            self.control_updates.send_replace(());
+        }
+    }
+
+    pub async fn set_button_layer(&self, serial: String, layer: ButtonLayer) -> Result<()> {
+        layer.validate()?;
+        let mut settings = self.settings.write().await;
+        let previous = settings.button_layers.insert(serial.clone(), layer);
+        if let Err(error) = settings.write(&self.path) {
+            if let Some(previous) = previous {
+                settings.button_layers.insert(serial, previous);
+            } else {
+                settings.button_layers.remove(&serial);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub async fn get_application_bindings(&self, serial: &str) -> Vec<ApplicationBinding> {
+        let mut bindings = self
+            .settings
+            .read()
+            .await
+            .application_bindings
+            .get(serial)
+            .cloned()
+            .unwrap_or_default();
+        assign_application_slots(&mut bindings);
+        bindings
+    }
+
+    pub async fn set_application_bindings(
+        &self,
+        serial: String,
+        mut bindings: Vec<ApplicationBinding>,
+    ) -> Result<()> {
+        validate_application_bindings(&bindings)?;
+        assign_application_slots(&mut bindings);
+        let mut settings = self.settings.write().await;
+        let previous = settings
+            .application_bindings
+            .insert(serial.clone(), bindings);
+        if let Err(error) = settings.write(&self.path) {
+            if let Some(previous) = previous {
+                settings.application_bindings.insert(serial, previous);
+            } else {
+                settings.application_bindings.remove(&serial);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub async fn get_application_runtime(&self, serial: &str) -> ApplicationModeStatus {
+        self.application_runtime
+            .read()
+            .await
+            .get(serial)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub async fn get_application_routes(
+        &self,
+        serial: &str,
+    ) -> Vec<crate::application_audio::ApplicationRouteStatus> {
+        self.application_routes
+            .read()
+            .await
+            .get(serial)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub async fn set_application_routes(
+        &self,
+        serial: &str,
+        routes: Vec<crate::application_audio::ApplicationRouteStatus>,
+    ) {
+        self.application_routes
+            .write()
+            .await
+            .insert(serial.to_owned(), routes);
+    }
+
+    pub async fn set_application_runtime(&self, serial: &str, runtime: ApplicationModeStatus) {
+        let mut values = self.application_runtime.write().await;
+        if values.get(serial) != Some(&runtime) {
+            values.insert(serial.to_owned(), runtime);
+            self.control_updates.send_replace(());
         }
     }
 
@@ -702,6 +852,10 @@ impl SettingsHandle {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default)]
+    button_layers: HashMap<String, ButtonLayer>,
+    #[serde(default)]
+    application_bindings: HashMap<String, Vec<ApplicationBinding>>,
     show_tray_icon: Option<bool>,
     selected_locale: Option<String>,
     tts_enabled: Option<bool>,
@@ -845,5 +999,81 @@ impl Default for DeviceSettings {
             sleep_commands: vec![],
             wake_commands: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod button_layer_tests {
+    use super::*;
+    use crate::button_actions::ButtonAction;
+
+    #[tokio::test]
+    async fn old_settings_load_and_actions_survive_restart_without_losing_device_settings()
+    -> Result<()> {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "goxlr-buttons-{}-{unique}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"devices":{"TEST":{"profile":"My Profile","mic_profile":"DEFAULT"}},"log_level":"Info"}"#,
+        )?;
+        let handle = SettingsHandle::load(path.clone()).await?;
+        let mut updates = handle.subscribe_control_updates();
+        let runtime = LayerRuntime::default();
+        handle.set_button_runtime("TEST", runtime).await;
+        assert!(updates.has_changed()?);
+        updates.borrow_and_update();
+        handle.set_button_runtime("TEST", runtime).await;
+        assert!(!updates.has_changed()?);
+        handle.set_button_runtime("TEST", LayerRuntime { active: true, page: 1 }).await;
+        assert!(updates.has_changed()?);
+        updates.borrow_and_update();
+        let apps = ApplicationModeStatus::default();
+        handle.set_application_runtime("TEST", apps.clone()).await;
+        assert!(updates.has_changed()?);
+        updates.borrow_and_update();
+        handle.set_application_runtime("TEST", apps).await;
+        assert!(!updates.has_changed()?);
+        handle.set_application_runtime("TEST", ApplicationModeStatus { active: true, page: 2, ..Default::default() }).await;
+        assert!(updates.has_changed()?);
+        assert!(!handle.get_button_layer("TEST").await.enabled);
+        let mut layer = ButtonLayer {
+            enabled: true,
+            ..Default::default()
+        };
+        layer.pages[0].actions[0] = ButtonAction::LoadProfile {
+            profile: "Default".into(),
+        };
+        handle.set_button_layer("TEST".into(), layer).await?;
+        let reloaded = SettingsHandle::load(path.clone()).await?;
+        assert!(reloaded.get_button_layer("TEST").await.enabled);
+        assert!(matches!(
+            reloaded.get_button_layer("TEST").await.pages[0].actions[0],
+            ButtonAction::LoadProfile { ref profile } if profile == "Default"
+        ));
+        assert_eq!(
+            reloaded.get_device_profile_name("TEST").await.as_deref(),
+            Some("My Profile")
+        );
+        let mut invalid = reloaded.get_button_layer("TEST").await;
+        invalid.pages[0].actions[0] = ButtonAction::LoadProfile {
+            profile: "../outside".into(),
+        };
+        assert!(
+            reloaded
+                .set_button_layer("TEST".into(), invalid)
+                .await
+                .is_err()
+        );
+        assert!(matches!(
+            reloaded.get_button_layer("TEST").await.pages[0].actions[0],
+            ButtonAction::LoadProfile { ref profile } if profile == "Default"
+        ));
+        std::fs::remove_file(path)?;
+        Ok(())
     }
 }

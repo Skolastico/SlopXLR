@@ -1,0 +1,22 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import english from '../daemon/web-content/redesign/locales/en.json' with {type:'json'};
+import portuguese from '../daemon/web-content/redesign/locales/pt-PT.json' with {type:'json'};
+import {t,setLanguage,resolveLanguage} from '../daemon/web-content/redesign/i18n.mjs';
+test('language fallback, authored templates and user values stay separate',()=>{
+ assert.equal(resolveLanguage(null,'pt-PT'),'pt-PT');
+ assert.equal(resolveLanguage(null,'fr-FR'),'en');
+ assert.equal(resolveLanguage('en','pt-PT'),'en');
+ assert.deepEqual(Object.keys(english),Object.keys(portuguese));
+ setLanguage('en');
+ assert.equal(t('Microfone'),'Microphone');
+ const profile='Microfone';
+ assert.equal(t`Perfil ${profile}`,'Profile Microfone');
+ assert.equal(t('<button aria-label="Guardar perfil">Guardar perfil</button>'),'<button aria-label="Save profile">Save profile</button>');
+ assert.equal(t`<option value="${profile}">${profile}</option>`,'<option value="Microfone">Microfone</option>');
+ assert.equal(t('SetGlobalColour'),'SetGlobalColour');
+ assert.equal(t('LoadProfile'),'LoadProfile');
+ assert.throws(()=>setLanguage('fr'));
+ setLanguage('pt-PT');
+ assert.equal(t('Microfone'),'Microfone');
+});

@@ -39,7 +39,9 @@ use crate::settings::SettingsHandle;
 use crate::shutdown::Shutdown;
 use crate::tts::spawn_tts_service;
 
+mod application_audio;
 mod audio;
+mod button_actions;
 mod cli;
 mod device;
 mod events;
@@ -54,6 +56,7 @@ mod settings;
 mod shutdown;
 mod tray;
 mod tts;
+mod updates;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -339,6 +342,12 @@ async fn run_utility() -> Result<()> {
     // Wait until the handler is setup
     let _ = ready_rx.await;
 
+    let routing_handle = tokio::spawn(application_audio::routing_worker(
+        settings.clone(),
+        usb_tx.clone(),
+        shutdown.clone(),
+    ));
+
     // Launch the IPC Server..
     let ipc_socket = ipc_socket?;
     let communications_handle = tokio::spawn(spawn_ipc_server(
@@ -361,6 +370,7 @@ async fn run_utility() -> Result<()> {
             broadcast_tx.clone(),
             http_settings.clone(),
             file_paths.clone(),
+            settings.clone(),
         ));
         http_server = httpd_rx.await?;
         if let Err(e) = http_server {
@@ -424,7 +434,8 @@ async fn run_utility() -> Result<()> {
             file_handle,
             tts_handle,
             event_handle,
-            platform_handle
+            platform_handle,
+            routing_handle
         );
     } else {
         let _ = join!(
@@ -433,7 +444,8 @@ async fn run_utility() -> Result<()> {
             file_handle,
             tts_handle,
             event_handle,
-            platform_handle
+            platform_handle,
+            routing_handle
         );
     }
     Ok(())

@@ -32,6 +32,11 @@ use goxlr_usb::routing::{InputDevice, OutputDevice};
 
 use crate::SettingsHandle;
 use crate::audio::{AudioFile, AudioHandler};
+use crate::button_actions::{
+    ApplicationBinding, ApplicationModeStatus, ButtonAction, ButtonLayer, LAYER_BUTTONS,
+    LayerEvents, LayerTracker, action_index, application_page_count, execute_external,
+    overlay_lighting,
+};
 use crate::events::EventTriggers;
 use crate::events::EventTriggers::TTSMessage;
 use crate::files::find_file_in_path;
@@ -43,16 +48,25 @@ use crate::profile::{
     DEFAULT_PROFILE_NAME, ProfileAdapter, usb_to_standard_button, version_newer_or_equal_to,
 };
 
+#[cfg(test)]
+#[path = "device_profile_tests.rs"]
+mod profile_tests;
+
 pub struct Device<'a> {
     goxlr: Box<dyn FullGoXLRDevice>,
     hardware: HardwareStatus,
     last_buttons: EnumSet<Buttons>,
     button_states: EnumMap<Buttons, ButtonState>,
+    button_layer_tracker: LayerTracker,
+    layer_colours: Option<[[u8; 4]; 6]>,
+    application_control: ApplicationControl,
     encoder_states: EnumMap<EncoderName, i8>,
     fader_last_seen: EnumMap<FaderName, u8>,
+    fader_inputs_initialized: bool,
     fader_pause_until: EnumMap<FaderName, PauseUntil>,
     profile: ProfileAdapter,
     mic_profile: MicProfileAdapter,
+    profile_recovery_needed: bool,
     audio_handler: Option<AudioHandler>,
     hold_time: Duration,
     vc_mute_also_mute_cm: bool,
@@ -73,6 +87,23 @@ struct PauseUntil {
 struct ButtonState {
     press_time: Option<Instant>,
     hold_handled: bool,
+}
+
+#[derive(Default)]
+struct ApplicationControl {
+    status: ApplicationModeStatus,
+    bindings: Vec<ApplicationBinding>,
+    clicks: EnumMap<FaderName, u8>,
+    released_at: EnumMap<FaderName, Option<Instant>>,
+    mute_before_click: EnumMap<FaderName, Option<(bool, bool)>>,
+    pickup_target: EnumMap<FaderName, Option<u8>>,
+    pickup_previous: EnumMap<FaderName, u8>,
+    pending_volume: EnumMap<FaderName, Option<(String, u8)>>,
+    // Temporary, silent hardware channels; never persisted in the profile.
+    hardware_faders: Option<EnumMap<FaderName, ChannelName>>,
+    fader_colours: Option<[[[u8; 4]; 2]; 4]>,
+    chord_started: Option<Instant>,
+    chord_handled: bool,
 }
 
 // Used when loading profiles to provide the previous
@@ -195,7 +226,7 @@ impl<'a> Device<'a> {
                 audio_handler.replace(audio);
             }
         } else {
-            debug!("Not Spawning Audio Handler, Device is Mini!");
+            audio_handler = Some(AudioHandler::new_mini());
         }
 
         let hold_time = settings_handle.get_device_hold_time(&serial).await;
@@ -213,14 +244,19 @@ impl<'a> Device<'a> {
         let mut device = Self {
             profile,
             mic_profile,
+            profile_recovery_needed: false,
             goxlr,
             hardware,
             hold_time: Duration::from_millis(hold_time.into()),
             vc_mute_also_mute_cm,
             last_buttons: EnumSet::empty(),
             button_states: EnumMap::default(),
+            button_layer_tracker: LayerTracker::default(),
+            layer_colours: None,
+            application_control: ApplicationControl::default(),
             encoder_states: EnumMap::default(),
             fader_last_seen: EnumMap::default(),
+            fader_inputs_initialized: false,
             fader_pause_until: EnumMap::default(),
             audio_handler,
             settings: settings_handle,
@@ -238,6 +274,63 @@ impl<'a> Device<'a> {
 
     pub fn serial(&self) -> &str {
         &self.hardware.serial_number
+    }
+
+    pub fn needs_profile_recovery(&self) -> bool {
+        self.profile_recovery_needed
+    }
+
+    async fn change_profile(&mut self, profile: ProfileAdapter) -> Result<()> {
+        self.stop_all_samples(true, true).await?;
+        let current = self.profile.get_current_state();
+        let previous = std::mem::replace(&mut self.profile, profile);
+        if let Err(error) = self.apply_profile(Some(current)).await {
+            let partial = self.profile.get_current_state();
+            self.profile = previous;
+            if self.goxlr.is_connected() {
+                match self.apply_profile(Some(partial)).await {
+                    Ok(()) => bail!(
+                        "Não foi possível carregar o perfil: {}. O perfil anterior foi reposto.",
+                        error
+                    ),
+                    Err(recovery) => {
+                        warn!("[{}] Profile rollback failed: {}", self.serial(), recovery)
+                    }
+                }
+            }
+            self.profile_recovery_needed = true;
+            bail!(
+                "Não foi possível concluir o carregamento do perfil: {}. A ligação ao Mini será reinicializada com o perfil anterior guardado.",
+                error
+            );
+        }
+        Ok(())
+    }
+
+    async fn change_mic_profile(&mut self, profile: MicProfileAdapter) -> Result<()> {
+        let previous = std::mem::replace(&mut self.mic_profile, profile);
+        if let Err(error) = self.apply_mic_profile().await {
+            self.mic_profile = previous;
+            if self.goxlr.is_connected() {
+                match self.apply_mic_profile().await {
+                    Ok(()) => bail!(
+                        "Não foi possível carregar o perfil do microfone: {}. O perfil anterior foi reposto.",
+                        error
+                    ),
+                    Err(recovery) => warn!(
+                        "[{}] Microphone profile rollback failed: {}",
+                        self.serial(),
+                        recovery
+                    ),
+                }
+            }
+            self.profile_recovery_needed = true;
+            bail!(
+                "Não foi possível concluir o carregamento do perfil do microfone: {}. A ligação será reinicializada com o perfil anterior guardado.",
+                error
+            );
+        }
+        Ok(())
     }
 
     pub async fn status(&self) -> MixerStatus {
@@ -365,6 +458,17 @@ impl<'a> Device<'a> {
 
     pub async fn shutdown(&mut self, avoid_save: bool) {
         debug!("Shutting Down Device: {}", self.hardware.serial_number);
+        if let Err(error) = self.exit_application_mode().await {
+            warn!("Unable to restore application faders at shutdown: {error}");
+        }
+        if self.layer_colours.take().is_some()
+            && let Err(error) = self
+                .load_colour_map()
+                .await
+                .and_then(|_| self.update_button_states())
+        {
+            warn!("Unable to restore profile lighting: {error}");
+        }
 
         let commands = self
             .settings
@@ -376,6 +480,9 @@ impl<'a> Device<'a> {
 
     pub async fn sleep(&mut self) {
         debug!("Sleeping...");
+        if let Err(error) = self.exit_application_mode().await {
+            warn!("Unable to restore application faders before sleep: {error}");
+        }
 
         let commands = self
             .settings
@@ -451,6 +558,22 @@ impl<'a> Device<'a> {
     pub async fn update_state(&mut self) -> Result<bool> {
         let mut state_updated = false;
         let mut refresh_colour_map = false;
+        let layer = self.settings.get_button_layer(self.serial()).await;
+        let application_mode_active = self.application_control.status.active;
+        let enabled = layer.enabled
+            && self.hardware.device_type == DeviceType::Mini
+            && !application_mode_active;
+        let events =
+            self.button_layer_tracker
+                .tick(enabled, layer.pages.len(), std::time::Instant::now());
+        if !application_mode_active {
+            self.handle_layer_cough(&events).await?;
+        }
+        state_updated |= events.cancel_normal;
+        self.sync_layer_lighting(&layer).await?;
+        self.settings
+            .set_button_runtime(self.serial(), self.button_layer_tracker.runtime)
+            .await;
 
         // Update any audio related states..
         if let Some(audio_handler) = &mut self.audio_handler {
@@ -468,8 +591,9 @@ impl<'a> Device<'a> {
                     let bank = result.bank;
                     let button = result.button;
 
-                    let filename = result.file.file_name().unwrap();
-                    let filename = filename.to_string_lossy().to_string();
+                    let root = self.settings.get_samples_directory().await;
+                    let root = root.canonicalize().unwrap_or(root);
+                    let filename = result.file.strip_prefix(&root).unwrap_or(&result.file).to_string_lossy().to_string();
 
                     debug!("Calculated Gain: {}", result.gain);
 
@@ -495,13 +619,26 @@ impl<'a> Device<'a> {
                 state_updated = true;
             };
 
-            if refresh_colour_map {
+            if refresh_colour_map && self.hardware.device_type == DeviceType::Full {
                 self.load_colour_map().await?;
             }
         }
 
         // Find any buttons that have been held, and action if needed.
         for button in self.last_buttons {
+            if self.application_control.status.active
+                && matches!(
+                    button,
+                    Buttons::Fader1Mute
+                        | Buttons::Fader2Mute
+                        | Buttons::Fader3Mute
+                        | Buttons::Fader4Mute
+                        | Buttons::Bleep
+                        | Buttons::MicrophoneMute
+                )
+            {
+                continue;
+            }
             if !self.button_states[button].hold_handled
                 && let Some(time) = self.button_states[button].press_time
                 && time.elapsed() > self.hold_time
@@ -512,6 +649,8 @@ impl<'a> Device<'a> {
                 self.button_states[button].hold_handled = true;
             }
         }
+
+        state_updated |= self.tick_application_control().await?;
 
         Ok(state_updated)
     }
@@ -525,19 +664,61 @@ impl<'a> Device<'a> {
             changed = result;
         }
 
+        let layer = self.settings.get_button_layer(self.serial()).await;
+        let was_application_mode_active = self.application_control.status.active;
+        let application_mode_changed = self
+            .process_application_buttons(
+                self.last_buttons,
+                state.pressed,
+                state.volumes,
+                !self.button_layer_tracker.runtime.active,
+            )
+            .await?;
+        let app_mode_this_frame = was_application_mode_active
+            || self.application_control.status.active
+            || application_mode_changed;
+        let enabled =
+            layer.enabled && self.hardware.device_type == DeviceType::Mini && !app_mode_this_frame;
+        let events = self.button_layer_tracker.update(
+            self.last_buttons,
+            state.pressed,
+            enabled,
+            layer.pages.len(),
+            std::time::Instant::now(),
+        );
+        if !app_mode_this_frame {
+            self.handle_layer_cough(&events).await?;
+        }
+        self.settings
+            .set_button_runtime(self.serial(), self.button_layer_tracker.runtime)
+            .await;
+        let suppressed = events.suppressed;
         let pressed_buttons = state.pressed.difference(self.last_buttons);
         for button in pressed_buttons {
             // This is a new press, store it in the states..
             self.button_states[button] = ButtonState {
                 press_time: Some(Instant::now()),
-                hold_handled: false,
+                hold_handled: suppressed.contains(button),
             };
 
-            if let Err(error) = self.on_button_down(button).await {
+            if !suppressed.contains(button)
+                && !is_fader_mute_button(button)
+                && !(app_mode_this_frame && is_application_mode_button(button))
+                && let Err(error) = self.on_button_down(button).await
+            {
                 error!("{}", error);
             }
 
             changed = true;
+        }
+
+        for (button, page) in events.actions {
+            if let Some(index) = action_index(button) {
+                let action = layer.pages[page].actions[index].clone();
+                if let Err(error) = self.execute_button_action(action).await {
+                    error!("Button action failed: {error}");
+                }
+            }
         }
 
         let released_buttons = self.last_buttons.difference(state.pressed);
@@ -545,7 +726,11 @@ impl<'a> Device<'a> {
             let button_state = self.button_states[button];
 
             // Output errors, but don't throw them up the stack!
-            if let Err(error) = self.on_button_up(button, &button_state).await {
+            if !suppressed.contains(button)
+                && !is_fader_mute_button(button)
+                && !(app_mode_this_frame && is_application_mode_button(button))
+                && let Err(error) = self.on_button_up(button, &button_state).await
+            {
                 error!("{}", error);
             }
 
@@ -558,7 +743,618 @@ impl<'a> Device<'a> {
         }
 
         self.last_buttons = state.pressed;
+        self.sync_layer_lighting(&layer).await?;
+        Ok(changed || application_mode_changed)
+    }
+
+    pub async fn execute_button_action(&mut self, action: ButtonAction) -> Result<()> {
+        let result = async {
+            if self.hardware.device_type != DeviceType::Mini {
+                bail!("Esta função destina-se ao GoXLR Mini.");
+            }
+            action.validate()?;
+            match action.clone() {
+                ButtonAction::None => Ok(()),
+                ButtonAction::LoadProfile { profile } => self
+                    .perform_command(GoXLRCommand::LoadProfile(profile, true))
+                    .await
+                    .map(|_| ()),
+                ButtonAction::PlaySample { bank, button } => {
+                    let track = self.profile.get_track_by_bank_button(bank, button)?;
+                    self.play_audio_file(bank, button, track, false).await
+                }
+                ButtonAction::StopSample { bank, button } => self.stop_sample_playback(bank, button).await,
+                ButtonAction::ToggleMute { fader } => {
+                    let (muted_to_x, muted_to_all, _) = self.profile.get_mute_button_state(fader);
+                    if muted_to_x || muted_to_all {
+                        self.unmute_fader(fader).await
+                    } else {
+                        self.handle_fader_mute(fader, false).await
+                    }
+                }
+                action => tokio::task::spawn_blocking(move || execute_external(action)).await?,
+            }
+        }
+        .await;
+        let message = match &result {
+            Err(error) => error.to_string(),
+            Ok(()) => match action {
+                ButtonAction::MediaKey { .. } | ButtonAction::Shortcut { .. } => "Teclas aceites pelo Windows. A aplicação ativa pode não responder a este atalho.".into(),
+                ButtonAction::None => "Este botão está configurado sem ação.".into(),
+                _ => "Ação executada.".into(),
+            }
+        };
+        self.settings
+            .set_action_report(
+                self.serial(),
+                crate::button_actions::ActionReport {
+                    success: result.is_ok(),
+                    message,
+                },
+            )
+            .await;
+        result
+    }
+
+    async fn sync_layer_lighting(&mut self, layer: &ButtonLayer) -> Result<()> {
+        let runtime = self.button_layer_tracker.runtime;
+        let colours = if self.application_control.status.active {
+            let bindings = self.settings.get_application_bindings(self.serial()).await;
+            let channel = self.application_control.status.channel;
+            let page = self.application_control.status.page;
+            let apps = bindings
+                .iter()
+                .filter(|binding| Some(binding.channel) == channel)
+                .filter(|binding| binding.slot.is_some_and(|slot| slot / 4 == page));
+            let mut colours = [[0x30, 0x30, 0x30, 0xff]; 6];
+            for binding in apps {
+                let index = binding.slot.unwrap() % 4;
+                colours[index] = goxlr_profile_loader::components::colours::Colour::fromrgb(
+                    &binding.colour[1..],
+                )?
+                .to_reverse_bytes();
+            }
+            colours[4] = goxlr_profile_loader::components::colours::Colour::fromrgb("50b8c4")?
+                .to_reverse_bytes();
+            colours[5] = goxlr_profile_loader::components::colours::Colour::fromrgb("50b8c4")?
+                .to_reverse_bytes();
+            Some(colours)
+        } else if runtime.active {
+            layer
+                .pages
+                .get(runtime.page)
+                .map(|page| page.lighting(self.last_buttons))
+                .transpose()?
+        } else {
+            None
+        };
+        if colours != self.layer_colours {
+            let previous = self.layer_colours;
+            self.layer_colours = colours;
+            if let Err(error) = self
+                .load_colour_map()
+                .await
+                .and_then(|_| self.update_button_states())
+            {
+                self.layer_colours = previous;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_layer_cough(&mut self, events: &LayerEvents) -> Result<()> {
+        if events.normal_down {
+            self.on_button_down(Buttons::MicrophoneMute).await?;
+        }
+        if events.normal_up
+            || (events.cancel_normal && !self.profile.get_mute_chat_button_state().0)
+        {
+            self.on_button_up(
+                Buttons::MicrophoneMute,
+                &ButtonState {
+                    press_time: None,
+                    hold_handled: false,
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn process_application_buttons(
+        &mut self,
+        previous: EnumSet<Buttons>,
+        current: EnumSet<Buttons>,
+        volumes: [u8; 4],
+        allow_entry: bool,
+    ) -> Result<bool> {
+        let now = Instant::now();
+        let was_active = self.application_control.status.active;
+        if was_active {
+            let bleep = Buttons::Bleep;
+            let cough = Buttons::MicrophoneMute;
+            let both_down = current.contains(bleep) && current.contains(cough);
+            if both_down && self.application_control.chord_started.is_none() {
+                self.application_control.chord_started = Some(now);
+                self.application_control.chord_handled = false;
+            }
+            if !self.application_control.chord_handled {
+                if previous.contains(bleep) && !current.contains(bleep) {
+                    self.change_application_page(false, volumes).await?;
+                }
+                if previous.contains(cough) && !current.contains(cough) {
+                    self.change_application_page(true, volumes).await?;
+                }
+            }
+            if !current.contains(bleep) && !current.contains(cough) {
+                self.application_control.chord_started = None;
+                self.application_control.chord_handled = false;
+            }
+        }
+
+        for fader in FaderName::iter() {
+            let button = fader_mute_button(fader);
+            if !previous.contains(button) || current.contains(button) {
+                continue;
+            }
+            if self.button_states[button].hold_handled {
+                self.application_control.clicks[fader] = 0;
+                self.application_control.released_at[fader] = None;
+                self.application_control.mute_before_click[fader] = None;
+                continue;
+            }
+            if !was_active && !allow_entry {
+                continue;
+            }
+
+            if !was_active {
+                let channel = self.profile.get_fader_assignment(fader);
+                let bindings = self.settings.get_application_bindings(self.serial()).await;
+                let can_enter = self.hardware.device_type == DeviceType::Mini
+                    && bindings.iter().any(|binding| binding.channel == channel);
+                let second_click = can_enter && self.application_control.released_at[fader]
+                    .is_some_and(|released| now.duration_since(released) <= Duration::from_millis(350));
+                if second_click {
+                    self.application_control.released_at[fader] = None;
+                    self.application_control.clicks[fader] = 0;
+                    // A single release mutes immediately. A navigation double click
+                    // restores the channel's original state before controlling apps.
+                    if let Some((to_x, to_all)) = self.application_control.mute_before_click[fader].take() {
+                        self.unmute_fader(fader).await?;
+                        if to_all {
+                            self.mute_fader_to_all(fader, true).await?;
+                        } else if to_x {
+                            self.mute_fader_to_x(fader).await?;
+                        }
+                    }
+                    self.enter_application_mode(fader, volumes).await?;
+                } else {
+                    let (to_x, to_all, _) = self.profile.get_mute_button_state(fader);
+                    self.handle_fader_mute(fader, false).await?;
+                    self.application_control.mute_before_click[fader] = can_enter.then_some((to_x, to_all));
+                    self.application_control.released_at[fader] = can_enter.then_some(now);
+                    self.application_control.clicks[fader] = u8::from(can_enter);
+                }
+            } else if self.application_control.released_at[fader]
+                .is_some_and(|released| now.duration_since(released) <= Duration::from_millis(350))
+            {
+                self.application_control.clicks[fader] = 0;
+                self.application_control.released_at[fader] = None;
+                if self.application_control.status.exit_fader == Some(fader) {
+                    self.exit_application_mode().await?;
+                } else {
+                    self.toggle_application_mute(fader).await;
+                }
+            } else {
+                self.application_control.clicks[fader] = 1;
+                self.application_control.released_at[fader] = Some(now);
+            }
+        }
+        Ok(was_active != self.application_control.status.active
+            || self.application_control.status.active)
+    }
+
+    async fn enter_application_mode(&mut self, fader: FaderName, _volumes: [u8; 4]) -> Result<()> {
+        let channel = self.profile.get_fader_assignment(fader);
+        let bindings = self.settings.get_application_bindings(self.serial()).await;
+        let count = application_page_count(&bindings, channel);
+        if count == 0 {
+            return Ok(());
+        }
+        // Repeated SetVolume calls unlatch the Mini. Instead, use four silent
+        // input channels as fader sensors, disconnected from every output.
+        // A zero main volume alone is insufficient when submix B is audible.
+        let router = self.profile.create_router();
+        let free = [ChannelName::Game, ChannelName::Console, ChannelName::LineIn, ChannelName::Sample,
+            ChannelName::Music, ChannelName::Chat, ChannelName::System]
+            .into_iter()
+            .filter(|channel| {
+                !bindings.iter().any(|b| b.channel == *channel)
+                    && (self.get_basic_input_from_channel(*channel).is_some_and(|input| {
+                        !router[input].values().any(|enabled| *enabled)
+                    }) || (self.profile.get_channel_volume(*channel) == 0
+                        && (!self.profile.is_submix_enabled()
+                            || self.profile.get_submix_from_channel(*channel)
+                                .is_some_and(|mix| self.profile.get_submix_volume(mix) == 0))))
+            }).collect::<Vec<_>>();
+        if free.len() < 4 {
+            self.application_control.status.message = Some(
+                "Não foi possível entrar no modo Aplicações: são necessários quatro canais sem áudio e sem aplicações associadas. Os canais em uso foram conservados.".into());
+            self.settings.set_application_runtime(self.serial(), self.application_control.status.clone()).await;
+            return Ok(());
+        }
+        let free = &free[..4];
+        self.application_control.hardware_faders = Some(EnumMap::from_array([free[0], free[1], free[2], free[3]]));
+        let prepare = (|| -> Result<()> {
+            for channel in free {
+                let input = self.get_basic_input_from_channel(*channel).unwrap();
+                let (left, right) = InputDevice::from_basic(&input);
+                let width = if self.device_supports_mix2() { 26 } else { 22 };
+                // Include internal effect feeds: these channels are sensors only.
+                self.goxlr.set_routing(left, vec![0; width])?;
+                self.goxlr.set_routing(right, vec![0; width])?;
+            }
+            for (fader, channel) in FaderName::iter().zip(free) {
+                self.goxlr.set_fader(fader, *channel)?;
+                self.goxlr.set_volume(*channel, 0)?;
+                self.goxlr.set_fader_display_mode(fader, false, false)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = prepare {
+            self.exit_application_mode().await?;
+            return Err(error);
+        }
+        // Start from the hardware's zero latch, not the old channel reading.
+        self.fader_last_seen = EnumMap::default();
+        self.fader_inputs_initialized = true;
+        self.application_control.released_at = Default::default();
+        self.application_control.mute_before_click = Default::default();
+        self.application_control.clicks = Default::default();
+        self.application_control.status = ApplicationModeStatus {
+            active: true,
+            channel: Some(channel),
+            page: 0,
+            page_count: count,
+            exit_fader: Some(fader),
+            pickup: [true; 4],
+            volume: [None; 4],
+            muted: [None; 4],
+            message: Some("Baixa primeiro os faders até ao mínimo. Depois sobe cada um até ao volume indicado para assumir a aplicação. Os LEDs mostram o volume, não o nível sonoro instantâneo.".into()),
+        };
+        let arm = async {
+            self.arm_application_page([0; 4]).await?;
+            self.sync_application_fader_lighting().await
+        }.await;
+        if let Err(error) = arm {
+            self.exit_application_mode().await?;
+            return Err(error);
+        }
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        Ok(())
+    }
+
+    async fn exit_application_mode(&mut self) -> Result<()> {
+        if let Some(channels) = self.application_control.hardware_faders {
+            let restore = async {
+                // Silence the temporary channels before restoring their routing.
+                for channel in channels.values() {
+                    self.goxlr.set_volume(*channel, self.profile.get_channel_volume(*channel))?;
+                }
+                for fader in FaderName::iter() {
+                    let original = self.profile.get_fader_assignment(fader);
+                    self.goxlr.set_fader(fader, original)?;
+                    self.goxlr.set_volume(original, self.profile.get_channel_volume(original))?;
+                    self.set_fader_display_from_profile(fader)?;
+                }
+                for channel in channels.values() {
+                    self.apply_routing(self.get_basic_input_from_channel(*channel).unwrap()).await?;
+                }
+                Ok::<(), anyhow::Error>(())
+            }.await;
+            if let Err(error) = restore {
+                self.profile_recovery_needed = true;
+                return Err(error);
+            }
+            self.application_control.hardware_faders = None;
+            // Re-establish the Mini baseline after restoring its firmware latch.
+            self.fader_inputs_initialized = false;
+        }
+        self.application_control.status = ApplicationModeStatus::default();
+        self.application_control.pending_volume = Default::default();
+        self.application_control.bindings.clear();
+        self.application_control.fader_colours = None;
+        self.layer_colours = None;
+        self.application_control.pickup_target = Default::default();
+        self.application_control.chord_started = None;
+        self.application_control.chord_handled = false;
+        for fader in FaderName::iter() {
+            self.application_control.clicks[fader] = 0;
+            self.application_control.released_at[fader] = None;
+            self.application_control.mute_before_click[fader] = None;
+        }
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        self.load_colour_map().await?;
+        Ok(())
+    }
+
+    async fn change_application_page(&mut self, next: bool, volumes: [u8; 4]) -> Result<()> {
+        let count = self.application_control.status.page_count;
+        if count == 0 {
+            return Ok(());
+        }
+        self.application_control.status.page = if next {
+            (self.application_control.status.page + 1) % count
+        } else {
+            (self.application_control.status.page + count - 1) % count
+        };
+        self.application_control.status.message = None;
+        self.arm_application_page(volumes).await?;
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        Ok(())
+    }
+
+    async fn arm_application_page(&mut self, volumes: [u8; 4]) -> Result<()> {
+        let Some(channel) = self.application_control.status.channel else {
+            return Ok(());
+        };
+        let bindings = self.settings.get_application_bindings(self.serial()).await;
+        let apps = bindings
+            .iter()
+            .filter(|binding| binding.channel == channel)
+            .filter(|binding| {
+                binding
+                    .slot
+                    .is_some_and(|slot| slot / 4 == self.application_control.status.page)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        self.application_control.bindings = bindings;
+        let running = crate::application_audio::running_applications()
+            .await
+            .unwrap_or_default();
+        self.application_control.status.pickup = [false; 4];
+        self.application_control.status.volume = [None; 4];
+        self.application_control.status.muted = [None; 4];
+        self.application_control.pickup_target = Default::default();
+        self.application_control.pending_volume = Default::default();
+        for fader in FaderName::iter() {
+            let index = fader as usize;
+            self.application_control.pickup_previous[fader] = volumes[index];
+            let Some(binding) = apps.iter().find(|binding| {
+                binding.slot == Some(self.application_control.status.page * 4 + index)
+            }) else {
+                continue;
+            };
+            let current = running
+                .iter()
+                .find(|app| app.executable.eq_ignore_ascii_case(&binding.executable))
+                .cloned();
+            if let Some(current) = &current {
+                self.application_control.status.volume[index] = Some(current.volume);
+                self.application_control.status.muted[index] = Some(current.muted);
+            }
+            let current = current
+                .map(|app| app.volume)
+                .unwrap_or(binding.reset_volume);
+            let target = ((current as u16 * 255 + 50) / 100) as u8;
+            self.application_control.pickup_target[fader] = Some(target);
+            self.application_control.status.pickup[index] = volumes[index].abs_diff(target) > 2;
+        }
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        Ok(())
+    }
+
+    async fn toggle_application_mute(&mut self, fader: FaderName) {
+        let Some(channel) = self.application_control.status.channel else {
+            return;
+        };
+        let binding = self
+            .settings
+            .get_application_bindings(self.serial())
+            .await
+            .into_iter()
+            .find(|binding| {
+                binding.channel == channel
+                    && binding.slot
+                        == Some(self.application_control.status.page * 4 + fader as usize)
+            });
+        let Some(binding) = binding else {
+            return;
+        };
+        let message =
+            match crate::application_audio::toggle_application_mute(binding.executable).await {
+                Ok(Some(muted)) => {
+                    self.application_control.status.muted[fader as usize] = Some(muted);
+                    format!(
+                        "{} {}.",
+                        binding.name,
+                        if muted { "silenciada" } else { "com som" }
+                    )
+                }
+                Ok(None) => format!(
+                    "Abre {} e reproduz som para a poder controlar.",
+                    binding.name
+                ),
+                Err(error) => format!("Não foi possível controlar {}: {error}", binding.name),
+            };
+        self.application_control.status.message = Some(message);
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        if let Err(error) = self.update_button_states() {
+            warn!("Unable to update application mute light: {error}");
+        }
+    }
+
+    async fn reset_application_channel(&mut self) -> Result<()> {
+        let Some(channel) = self.application_control.status.channel else {
+            return Ok(());
+        };
+        let bindings = self.settings.get_application_bindings(self.serial()).await;
+        self.application_control.pending_volume = Default::default();
+        let reset = crate::application_audio::set_application_volumes(
+            bindings
+                .iter()
+                .filter(|binding| binding.channel == channel)
+                .map(|binding| (binding.executable.clone(), binding.reset_volume))
+                .collect(),
+        )
+        .await?;
+        self.application_control.chord_handled = true;
+        self.application_control.status.message = Some(if reset.is_empty() {
+            "Não há aplicações deste canal com som neste momento.".into()
+        } else {
+            format!(
+                "Volume reposto em {} aplicação(ões) deste canal.",
+                reset.len()
+            )
+        });
+        self.arm_application_page(self.fader_last_seen.into_array())
+            .await?;
+        self.settings
+            .set_application_runtime(self.serial(), self.application_control.status.clone())
+            .await;
+        Ok(())
+    }
+
+    async fn tick_application_control(&mut self) -> Result<bool> {
+        let now = Instant::now();
+        let mut changed = false;
+        if self.application_control.status.active {
+            let bindings = self.settings.get_application_bindings(self.serial()).await;
+            if bindings != self.application_control.bindings {
+                // Discard queued movements before a slot can refer to a different application.
+                self.exit_application_mode().await?;
+                self.sync_layer_lighting(&self.settings.get_button_layer(self.serial()).await)
+                    .await?;
+                changed = true;
+            }
+        }
+        let pending = FaderName::iter()
+            .filter_map(|fader| {
+                self.application_control.pending_volume[fader]
+                    .take()
+                    .map(|target| target)
+            })
+            .collect::<Vec<_>>();
+        if !pending.is_empty() {
+            match crate::application_audio::set_application_volumes(pending.clone()).await {
+                Ok(applied) => {
+                    let missing = pending.iter().find(|(path, _)| {
+                        !applied
+                            .iter()
+                            .any(|active| active.eq_ignore_ascii_case(path))
+                    });
+                    for (path, _) in &pending {
+                        if !applied.iter().any(|active| active.eq_ignore_ascii_case(path)) {
+                            for binding in &self.application_control.bindings {
+                                if binding.executable.eq_ignore_ascii_case(path)
+                                    && let Some(slot) = binding.slot
+                                    && slot / 4 == self.application_control.status.page {
+                                    self.application_control.status.volume[slot % 4] = None;
+                                    self.application_control.status.muted[slot % 4] = None;
+                                }
+                            }
+                        }
+                    }
+                    if let Some((path, _)) = missing {
+                        let bindings = self.settings.get_application_bindings(self.serial()).await;
+                        if let Some(binding) = bindings
+                            .iter()
+                            .find(|binding| binding.executable.eq_ignore_ascii_case(path))
+                        {
+                            self.application_control.status.message = Some(format!(
+                                "Abre {} e reproduz som para a poder controlar.",
+                                binding.name
+                            ));
+                        }
+                    } else {
+                        self.application_control.status.message = None;
+                    }
+                }
+                Err(error) => {
+                    warn!("Unable to update application volume: {error}");
+                    self.application_control.status.message =
+                        Some(format!("Não foi possível atualizar o volume: {error}"));
+                }
+            }
+            self.settings
+                .set_application_runtime(self.serial(), self.application_control.status.clone())
+                .await;
+            changed = true;
+        }
+        if self.application_control.status.active
+            && !self.application_control.chord_handled
+            && self
+                .application_control
+                .chord_started
+                .is_some_and(|started| now.duration_since(started) >= Duration::from_millis(700))
+        {
+            self.reset_application_channel().await?;
+            changed = true;
+        }
+        if !self.application_control.status.active && self.button_layer_tracker.runtime.active {
+            return Ok(changed);
+        }
+        for fader in FaderName::iter() {
+            let Some(released) = self.application_control.released_at[fader] else {
+                continue;
+            };
+            if now.duration_since(released) < Duration::from_millis(350) {
+                continue;
+            }
+            self.application_control.released_at[fader] = None;
+            self.application_control.clicks[fader] = 0;
+            if self.application_control.status.active {
+                self.toggle_application_mute(fader).await;
+            } else {
+                // Normal mute was already applied on release; only expire navigation.
+                self.application_control.mute_before_click[fader] = None;
+            }
+            changed = true;
+        }
+        if self.application_control.status.active {
+            self.sync_application_fader_lighting().await?;
+        }
         Ok(changed)
+    }
+
+    async fn sync_application_fader_lighting(&mut self) -> Result<()> {
+        let mut colours = [[[0; 4]; 2]; 4];
+        let status = &self.application_control.status;
+        for fader in FaderName::iter() {
+            let index = fader as usize;
+            let Some(binding) = self.application_control.bindings.iter().find(|b| {
+                Some(b.channel) == status.channel && b.slot == Some(status.page * 4 + index)
+            }) else { continue; };
+            if status.muted[index] == Some(true) { continue; }
+            let colour = goxlr_profile_loader::components::colours::Colour::fromrgb(&binding.colour[1..])?.to_reverse_bytes();
+            let mut dimmed = colour;
+            for component in &mut dimmed[..3] { *component /= 8; }
+            // TwoColour follows the isolated hardware fader volume. During
+            // pickup, a dim strip indicates that the app has not been acquired.
+            colours[index] = if status.pickup[index] || status.volume[index].is_none() {
+                [dimmed, dimmed]
+            } else { [[0; 4], colour] };
+        }
+        if self.application_control.fader_colours != Some(colours) {
+            let previous = self.application_control.fader_colours.replace(colours);
+            if let Err(error) = self.load_colour_map().await {
+                self.application_control.fader_colours = previous;
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     async fn on_button_down(&mut self, button: Buttons) -> Result<()> {
@@ -1476,11 +2272,10 @@ impl<'a> Device<'a> {
                 .play_for_button(bank, button, audio, loop_track)
                 .await;
 
-            if result.is_ok() {
-                self.profile.set_sample_button_state(button, true);
-            } else {
-                error!("{}", result.err().unwrap());
-            }
+            result?;
+            self.profile.set_sample_button_state(button, true);
+        } else {
+            bail!("O motor de reprodução de áudio não está disponível.");
         }
         Ok(())
     }
@@ -1524,6 +2319,7 @@ impl<'a> Device<'a> {
     }
 
     async fn sync_sample_lighting(&mut self) -> Result<bool> {
+        if self.hardware.device_type == DeviceType::Mini { return Ok(false); }
         if self.audio_handler.is_none() {
             // No audio handler, no point.
             return Ok(false);
@@ -1638,6 +2434,13 @@ impl<'a> Device<'a> {
     }
 
     async fn update_volumes_to(&mut self, volumes: [u8; 4]) -> Result<bool> {
+        // The Mini has no motorized faders: the first USB reading is a baseline,
+        // not a user movement that should overwrite the restored profile.
+        if self.is_device_mini() && !self.fader_inputs_initialized {
+            self.fader_last_seen = EnumMap::from_array(volumes);
+            self.fader_inputs_initialized = true;
+            return Ok(false);
+        }
         let mut value_changed = false;
 
         for fader in FaderName::iter() {
@@ -1667,6 +2470,12 @@ impl<'a> Device<'a> {
                     self.fader_pause_until[fader].paused = false;
                 }
             }
+            if self.application_control.status.active {
+                self.fader_last_seen[fader] = new_volume;
+                self.handle_application_fader_move(fader, new_volume).await;
+                value_changed = true;
+                continue;
+            }
             self.fader_last_seen[fader] = new_volume;
 
             let channel = self.profile.get_fader_assignment(fader);
@@ -1686,6 +2495,46 @@ impl<'a> Device<'a> {
             }
         }
         Ok(value_changed)
+    }
+
+    async fn handle_application_fader_move(&mut self, fader: FaderName, new_volume: u8) {
+        let Some(channel) = self.application_control.status.channel else {
+            return;
+        };
+        let binding = self
+            .settings
+            .get_application_bindings(self.serial())
+            .await
+            .into_iter()
+            .find(|binding| {
+                binding.channel == channel
+                    && binding.slot
+                        == Some(self.application_control.status.page * 4 + fader as usize)
+            });
+        let Some(binding) = binding else {
+            return;
+        };
+
+        if self.application_control.status.pickup[fader as usize] {
+            let Some(target) = self.application_control.pickup_target[fader] else {
+                return;
+            };
+            let previous = self.application_control.pickup_previous[fader];
+            let crossed = new_volume == target
+                || (previous <= target && new_volume >= target)
+                || (previous >= target && new_volume <= target);
+            self.application_control.pickup_previous[fader] = new_volume;
+            if !crossed {
+                return;
+            }
+            self.application_control.status.pickup[fader as usize] = false;
+            self.application_control.status.message =
+                Some(format!("Fader {} ligado a {}.", fader, binding.name));
+        }
+
+        let app_volume = ((new_volume as u16 * 100 + 127) / 255) as u8;
+        self.application_control.status.volume[fader as usize] = Some(app_volume);
+        self.application_control.pending_volume[fader] = Some((binding.executable, app_volume));
     }
 
     fn update_submix_for(&mut self, channel: ChannelName, volume: u8) -> Result<()> {
@@ -1843,6 +2692,16 @@ impl<'a> Device<'a> {
     }
 
     pub async fn perform_command(&mut self, command: GoXLRCommand) -> Result<()> {
+        if self.profile_recovery_needed {
+            bail!(
+                "A ligação está a recuperar de um carregamento incompleto. Aguarda que o dispositivo volte a aparecer."
+            );
+        }
+        // Hardware/profile edits must first relinquish the temporary channels.
+        // Application session commands use their separate HTTP endpoints.
+        if self.application_control.hardware_faders.is_some() {
+            self.exit_application_mode().await?;
+        }
         match command {
             GoXLRCommand::SetShutdownCommands(commands) => {
                 self.settings
@@ -2583,7 +3442,7 @@ impl<'a> Device<'a> {
                 }
 
                 // Update the lighting..
-                self.load_colour_map().await?;
+                if self.hardware.device_type == DeviceType::Full { self.load_colour_map().await?; }
             }
             GoXLRCommand::SetSampleStartPercent(bank, button, index, percent) => {
                 self.profile
@@ -2599,7 +3458,7 @@ impl<'a> Device<'a> {
                     .remove_sample_file_by_index(bank, button, index)?;
 
                 if remaining == 0 {
-                    self.load_colour_map().await?;
+                    if self.hardware.device_type == DeviceType::Full { self.load_colour_map().await?; }
                 }
             }
             GoXLRCommand::PlaySampleByIndex(bank, button, index) => {
@@ -2610,16 +3469,16 @@ impl<'a> Device<'a> {
                     false,
                 )
                 .await?;
-                self.update_button_states()?;
+                if self.hardware.device_type == DeviceType::Full { self.update_button_states()?; }
             }
             GoXLRCommand::PlayNextSample(bank, button) => {
                 let track = self.profile.get_track_by_bank_button(bank, button)?;
                 self.play_audio_file(bank, button, track, false).await?;
-                self.update_button_states()?;
+                if self.hardware.device_type == DeviceType::Full { self.update_button_states()?; }
             }
             GoXLRCommand::StopSamplePlayback(bank, button) => {
                 self.stop_sample_playback(bank, button).await?;
-                self.update_button_states()?;
+                if self.hardware.device_type == DeviceType::Full { self.update_button_states()?; }
             }
 
             GoXLRCommand::SetScribbleIcon(fader, icon) => {
@@ -2641,20 +3500,18 @@ impl<'a> Device<'a> {
 
             // Profiles
             GoXLRCommand::NewProfile(profile_name) => {
-                self.stop_all_samples(true, true).await?;
                 let profile_directory = self.settings.get_profile_directory().await;
-                let volumes = self.profile.get_current_state();
 
                 // Do a new file verification check..
                 ProfileAdapter::can_create_new_file(profile_name.clone(), &profile_directory)?;
 
                 // Force load the default embedded profile..
-                self.profile = ProfileAdapter::default();
-                self.apply_profile(Some(volumes)).await?;
+                let mut profile = ProfileAdapter::default();
 
                 // Save the profile under a new name (although, don't overwrite if exists!)
                 let path = self.settings.get_profile_directory().await;
-                self.profile.save_as(profile_name.clone(), &path, false)?;
+                profile.save_as(profile_name.clone(), &path, false)?;
+                self.change_profile(profile).await?;
 
                 // Save the profile in the settings
                 self.settings
@@ -2663,9 +3520,6 @@ impl<'a> Device<'a> {
                 self.settings.save().await;
             }
             GoXLRCommand::LoadProfile(profile_name, save_change) => {
-                self.stop_all_samples(true, true).await?;
-                let volumes = self.profile.get_current_state();
-
                 // Grab the needed Paths..
                 let profile_path = self.settings.get_profile_directory().await;
                 let backup_path = self.settings.get_backup_directory().await;
@@ -2673,7 +3527,7 @@ impl<'a> Device<'a> {
                 // Attempt to load the profile from the main profile path..
                 let profile = ProfileAdapter::from_named(profile_name.clone(), &profile_path);
 
-                match profile {
+                let profile = match profile {
                     Ok(mut profile) => {
                         if save_change {
                             // We're persisting this change, so save the backup
@@ -2683,7 +3537,7 @@ impl<'a> Device<'a> {
                             });
                             debug!("Backup Complete");
                         }
-                        self.profile = profile;
+                        profile
                     }
                     Err(e) => {
                         if !save_change {
@@ -2693,12 +3547,12 @@ impl<'a> Device<'a> {
                         }
                         warn!("Failed to Load Profile: {}, checking for backup..", e);
                         match ProfileAdapter::from_named(profile_name, &backup_path) {
-                            Ok(profile) => {
+                            Ok(mut profile) => {
                                 info!("Backup Profile Loaded");
-                                self.profile = profile;
 
                                 debug!("Overwriting existing corrupt profile..");
-                                self.profile.save(&profile_path, true)?;
+                                profile.save(&profile_path, true)?;
+                                profile
                             }
                             Err(e) => {
                                 bail!("Failed to Load backup profile: {}", e);
@@ -2707,7 +3561,7 @@ impl<'a> Device<'a> {
                     }
                 };
 
-                self.apply_profile(Some(volumes)).await?;
+                self.change_profile(profile).await?;
                 if save_change {
                     self.settings
                         .set_device_profile_name(self.serial(), self.profile.name())
@@ -2759,7 +3613,13 @@ impl<'a> Device<'a> {
             }
             GoXLRCommand::ReloadSettings() => {
                 // This is a simple command that will reload the current profile settings
-                self.apply_profile(None).await?;
+                if let Err(error) = self.apply_profile(None).await {
+                    self.profile_recovery_needed = true;
+                    bail!(
+                        "Não foi possível reaplicar o perfil: {}. A ligação será reinicializada.",
+                        error
+                    );
+                }
             }
             GoXLRCommand::NewMicProfile(mic_profile_name) => {
                 let mic_profile_directory = self.settings.get_mic_profile_directory().await;
@@ -2771,12 +3631,9 @@ impl<'a> Device<'a> {
                 )?;
 
                 // As above, load the default profile, then save as a new profile.
-                self.mic_profile = MicProfileAdapter::default();
-                self.mic_profile.save_as(
-                    mic_profile_name.clone(),
-                    &mic_profile_directory,
-                    false,
-                )?;
+                let mut profile = MicProfileAdapter::default();
+                profile.save_as(mic_profile_name.clone(), &mic_profile_directory, false)?;
+                self.change_mic_profile(profile).await?;
 
                 // Save the new name in the settings
                 self.settings
@@ -2793,7 +3650,7 @@ impl<'a> Device<'a> {
                 // Attempt to load the profile from the main profile path..
                 let profile = MicProfileAdapter::from_named(name.clone(), &path);
 
-                match profile {
+                let profile = match profile {
                     Ok(mut profile) => {
                         if persist {
                             // We're persisting this change, so save the backup
@@ -2803,7 +3660,7 @@ impl<'a> Device<'a> {
                             });
                             debug!("Backup Complete");
                         }
-                        self.mic_profile = profile;
+                        profile
                     }
                     Err(e) => {
                         if !persist {
@@ -2813,12 +3670,12 @@ impl<'a> Device<'a> {
                         }
                         warn!("Failed to Load Profile: {}, checking for backup..", e);
                         match MicProfileAdapter::from_named(name, &backup) {
-                            Ok(profile) => {
+                            Ok(mut profile) => {
                                 info!("Backup Mic Profile Loaded");
-                                self.mic_profile = profile;
 
                                 debug!("Overwriting existing corrupt profile..");
-                                self.profile.save(&path, true)?;
+                                profile.save(&path, true)?;
+                                profile
                             }
                             Err(e) => {
                                 bail!("Failed to Load backup profile: {}", e);
@@ -2826,7 +3683,7 @@ impl<'a> Device<'a> {
                         }
                     }
                 };
-                self.apply_mic_profile().await?;
+                self.change_mic_profile(profile).await?;
 
                 if persist {
                     self.settings
@@ -2956,8 +3813,10 @@ impl<'a> Device<'a> {
             }
             GoXLRCommand::SetActiveSamplerBank(bank) => {
                 self.load_sample_bank(bank).await?;
-                self.load_colour_map().await?;
-                self.update_button_states()?;
+                if self.hardware.device_type == DeviceType::Full {
+                    self.load_colour_map().await?;
+                    self.update_button_states()?;
+                }
             }
             GoXLRCommand::SetMegaphoneEnabled(enabled) => {
                 self.set_megaphone(enabled).await?;
@@ -3154,6 +4013,18 @@ impl<'a> Device<'a> {
 
         // Replace the Cough Button button data with correct data.
         result[Buttons::MicrophoneMute as usize] = self.profile.get_mute_chat_button_colour_state();
+        if self.layer_colours.is_some() {
+            for button in LAYER_BUTTONS {
+                result[button as usize] = ButtonStates::Colour1;
+            }
+        }
+        if self.application_control.status.active {
+            for fader in FaderName::iter() {
+                if self.application_control.status.muted[fader as usize] == Some(true) {
+                    result[fader_mute_button(fader) as usize] = ButtonStates::DimmedColour1;
+                }
+            }
+        }
         result
     }
 
@@ -3628,7 +4499,21 @@ impl<'a> Device<'a> {
         let blank_mute = self.is_device_mini() || lock_faders;
 
         let use_1_3_40_format = self.device_supports_animations();
-        let colour_map = self.profile.get_colour_map(use_1_3_40_format, blank_mute);
+        let mut colour_map = self.profile.get_colour_map(use_1_3_40_format, blank_mute);
+        if let Some(colours) = &self.layer_colours {
+            overlay_lighting(&mut colour_map, use_1_3_40_format, colours);
+        }
+        if self.application_control.status.active
+            && let Some(colours) = &self.application_control.fader_colours {
+            use goxlr_usb::colouring::ColourTargets;
+            for (index, target) in [ColourTargets::FadeMeter1, ColourTargets::FadeMeter2,
+                ColourTargets::FadeMeter3, ColourTargets::FadeMeter4].into_iter().enumerate() {
+                for colour in 0..2 {
+                    let offset = target.position(colour, use_1_3_40_format);
+                    colour_map[offset..offset + 4].copy_from_slice(&colours[index][colour as usize]);
+                }
+            }
+        }
 
         if use_1_3_40_format {
             self.goxlr.set_button_colours_1_3_40(colour_map)?;
@@ -3677,6 +4562,7 @@ impl<'a> Device<'a> {
     }
 
     async fn apply_profile(&mut self, current: Option<CurrentState>) -> Result<()> {
+        let profile_start = Instant::now();
         // Set volumes first, applying mute may modify stuff..
         debug!("Applying Profile..");
 
@@ -3740,6 +4626,17 @@ impl<'a> Device<'a> {
         debug!("Applying Submixing Settings..");
         self.load_submix_settings(true).await?;
 
+        debug!("Applying Audio Routing..");
+        // Restore audio paths before slower visual and control-surface updates.
+        for input in BasicInputDevice::iter() {
+            self.apply_routing(input).await?;
+        }
+        info!(
+            "[{}] Audio routing applied in {} ms since profile start",
+            self.serial(),
+            profile_start.elapsed().as_millis()
+        );
+
         debug!("Loading Colour Map..");
         self.load_colour_map().await?;
 
@@ -3762,13 +4659,6 @@ impl<'a> Device<'a> {
 
         debug!("Updating button states..");
         self.update_button_states()?;
-
-        debug!("Applying Routing..");
-        // For profile load, we should configure all the input channels from the profile,
-        // this is split so we can do tweaks in places where needed.
-        for input in BasicInputDevice::iter() {
-            self.apply_routing(input).await?;
-        }
 
         debug!("Applying Voice FX");
         self.apply_voice_fx()?;
@@ -4203,6 +5093,26 @@ impl<'a> Device<'a> {
         self.hardware.device_type == DeviceType::Mini
             || (self.hardware.device_type == DeviceType::Full && self.device_supports_mix2())
     }
+}
+
+fn fader_mute_button(fader: FaderName) -> Buttons {
+    match fader {
+        FaderName::A => Buttons::Fader1Mute,
+        FaderName::B => Buttons::Fader2Mute,
+        FaderName::C => Buttons::Fader3Mute,
+        FaderName::D => Buttons::Fader4Mute,
+    }
+}
+
+fn is_fader_mute_button(button: Buttons) -> bool {
+    matches!(
+        button,
+        Buttons::Fader1Mute | Buttons::Fader2Mute | Buttons::Fader3Mute | Buttons::Fader4Mute
+    )
+}
+
+fn is_application_mode_button(button: Buttons) -> bool {
+    is_fader_mute_button(button) || matches!(button, Buttons::Bleep | Buttons::MicrophoneMute)
 }
 
 fn tts_bool_to_state(bool: bool) -> String {
