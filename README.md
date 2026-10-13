@@ -1,23 +1,59 @@
-# GoXLR Personalizado
+# SlopXLR
 
-Aplicação Windows x64 personalizada, baseada no GoXLR Utility. Interface em Português de Portugal e inglês, controlos por aplicação, ações nos botões e configuração de áudio.
+**The name says it all.** A Windows desktop variant of [GoXLR Utility](https://github.com/GoXLR-on-Linux/goxlr-utility), with a redesigned interface and additional GoXLR Mini controls.
 
-**0.1.0-beta.1**: testada num GoXLR Mini. O modelo completo ainda precisa de validação física.
+SlopXLR builds on the original Utility's device service, audio configuration and profile system. It adds configurable button pages, per-application volume control, a software soundboard for the Mini, and English / Portuguese UI support. It also includes a per-user installer and a portable package.
 
-## Instalar
+This is an independent derivative maintained by [Skolastico](https://github.com/Skolastico). It is not an official TC Helicon product or an upstream GoXLR Utility release. Original authorship and licenses are retained.
 
-Instala o driver oficial GoXLR, encerra outras versões do Utility e abre o instalador. A alternativa portátil é extrair o ZIP e abrir Open.cmd. As configurações são independentes; a primeira abertura permite importar a instalação original sem alterar a origem. A desinstalação conserva os dados.
+> **Beta:** Windows x64 and GoXLR Mini are the current distribution target. Standard full-size GoXLR features remain in the code, but have not been physically validated in this fork. The custom Controls and Applications modes are Mini-only. See [validation and limitations](docs/VALIDATION.md).
 
-Idioma e atualizações estão nas Definições. A interface anterior está em Opções avançadas. Enquanto o repositório for privado, descarrega as versões autenticado no GitHub e instala manualmente. A aplicação não inclui credenciais de acesso ao GitHub.
+## Get started
 
-## Construir e publicar
+1. Install the official GoXLR audio driver and close other GoXLR Utility instances.
+2. Download the installer or portable ZIP from [Releases](https://github.com/Skolastico/SlopXLR/releases).
+3. Run the installer, or extract the portable ZIP to a writable folder and open **Open.cmd**.
+4. Import an existing Utility configuration when offered, or start fresh.
+5. Select your device and profile. Set the UI language in **Settings → Language**.
 
-Requer Rust/MSVC, Node.js (testes), NSIS e o driver para testar o dispositivo. Executa node --test tests/*.test.mjs e cargo test -p goxlr-daemon. distribution/Build.ps1 compila o serviço e a janela, gera instalador, ZIP e manifesto de atualização assinado. Guarda a chave RSA privada fora do repositório e passa -SigningKeyPath; a chave pública está em distribution/update-public.xml. Para reutilizar uma janela já compilada: -SkipBuild -UiBinary caminho. -NsisPath permite indicar o compilador NSIS.
+This repository is currently private. Downloading releases requires an account with access. Application updates are installed manually while releases remain private.
 
-O pacote local desta beta reutiliza a janela nativa existente; o serviço foi compilado com as alterações. O workflow compila ambos a partir do código.
+## What SlopXLR adds
 
-Para publicar uma nova versão, altera distribution/release.json e cria uma etiqueta v seguida da mesma versão. O workflow exige o segredo UPDATE_SIGNING_KEY_XML com a chave privada correspondente à chave pública. Publica os cinco ficheiros gerados: instalador, ZIP, update.json, update.json.sig e SHA256SUMS.txt. Sem esse segredo a publicação falha, em vez de gerar pacotes sem assinatura. Releases privadas requerem acesso à conta; o atualizador automático lê apenas releases públicas. A assinatura dos updates não substitui a assinatura comercial Windows dos executáveis.
+| Feature | What you can do |
+| --- | --- |
+| New main interface | Use dedicated Mixer, Microphone, Controls, Applications, Routing, Lighting, Sampler, Profiles and Settings pages. |
+| Mini button pages | Assign programs, media keys, keyboard shortcuts, profiles, fader mute and soundboard actions to A–D and Bleep. |
+| Application mode | Control individual Windows applications with the Mini's four faders, with pages, mute, reference volumes and pickup. |
+| Mini soundboard | Use three virtual banks of four slots, multiple clips per slot, sequential/random playback and non-destructive trimming. |
+| Microphone workflow | Use a measured input signal, gate history, simple/detailed controls and local EQ A/B snapshots. |
+| English and Portuguese | Choose the interface language without renaming your profiles, programs or files. |
+| Distribution | Install per user or run a portable copy; import settings; retain user data when reinstalling or uninstalling. |
+| Update verification | Verify signed update metadata and package hashes before replacing program files. |
 
-## Origem e licenças
+Core channel mixing, microphone processing, routing, profiles, firmware tools and model-specific hardware features are inherited from GoXLR Utility. See the [comparison](docs/COMPARISON.md) for the scope of each addition.
 
-Mantém o histórico e as licenças do GoXLR-on-Linux/GoXLR-Utility (base 49ab4e4) e inclui a janela GoXLR Utility UI (base e71bb2e) em ui-wrapper. Consulta LICENSE, LICENSE-3RD-PARTY, ui-wrapper/LICENSE e README-UPSTREAM.md.
+## Documentation
+
+| Guide | Contents |
+| --- | --- |
+| [Installation and migration](docs/INSTALLATION.md) | Requirements, installer, portable mode, importing, upgrading, data locations and uninstalling. |
+| [User guide](docs/USER_GUIDE.md) | Every application area, hardware gestures, worked examples and what to save. |
+| [Comparison with GoXLR Utility](docs/COMPARISON.md) | Inherited behavior, additions, interface changes and model differences. |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Missing device, audio routing, applications, pickup, soundboard, shortcuts and recovery. |
+| [Build and release guide](docs/DEVELOPMENT.md) | Source layout, builds, tests, packaging, release signing and GitHub workflow. |
+| [Validation and limitations](docs/VALIDATION.md) | Confirmed checks and outstanding physical / clean-machine tests. |
+| [Changelog](CHANGELOG.md) | Changes by release. |
+| [Roadmap](ROADMAP.md) | Remaining validation and development priorities. |
+| [Contributing](CONTRIBUTING.md) | Bug reports, changes and translation contributions. |
+| [Security](SECURITY.md) | Local access, release verification and reporting. |
+
+The original interface is available under **Settings → Advanced options → Previous interface**. Button actions and application control are handled by the service and can continue after closing the window; exiting the service stops them.
+
+## Credits and licenses
+
+- Device service and original frontend: [GoXLR-on-Linux / GoXLR Utility](https://github.com/GoXLR-on-Linux/goxlr-utility), initially based on commit 49ab4e4.
+- Native window source: [FrostyCoolSlug / goxlr-utility-ui](https://github.com/FrostyCoolSlug/goxlr-utility-ui), initially based on commit e71bb2e, included in ui-wrapper/.
+- SlopXLR customization and distribution: Skolastico.
+
+The repository retains the upstream Git history. See [LICENSE](LICENSE), [third-party licenses](LICENSE-3RD-PARTY), [wrapper license](ui-wrapper/LICENSE) and [the original README](README-UPSTREAM.md). The release's signed update manifest is separate from Windows executable code signing.

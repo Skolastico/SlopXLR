@@ -47,7 +47,7 @@ try{
   if(!(Test-Path -LiteralPath (Join-Path $DataRoot 'config\settings.json')) -and !$ImportFrom -and !$Background){
    $original=Join-Path $env:APPDATA 'GoXLR-on-Linux\GoXLR-Utility\config\settings.json'
    if(Test-Path -LiteralPath $original){
-    $choice=[System.Windows.MessageBox]::Show((Msg 'Importar perfis, ações e samples do GoXLR Utility existente? Escolhe Não para começar de raiz.' 'Import profiles, actions and samples from the existing GoXLR Utility? Choose No to start fresh.'),'GoXLR Personalizado','YesNoCancel')
+    $choice=[System.Windows.MessageBox]::Show((Msg 'Importar perfis, ações e samples do GoXLR Utility existente? Escolhe Não para começar de raiz.' 'Import profiles, actions and samples from the existing GoXLR Utility? Choose No to start fresh.'),'SlopXLR','YesNoCancel')
     if($choice -eq 'Cancel'){exit}
     if($choice -eq 'Yes'){$ImportFrom=$original}
    }
@@ -61,4 +61,4 @@ try{
  $body=@{Daemon=@{SetActivatorPath=('"'+$native+'"')}}|ConvertTo-Json -Compress
  Invoke-RestMethod 'http://localhost:14564/api/command' -Method Post -ContentType application/json -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 5 | Out-Null
  if(!$Background){Invoke-RestMethod 'http://localhost:14564/api/command' -Method Post -ContentType application/json -Body '{"Daemon":"Activate"}' -TimeoutSec 5 | Out-Null}
-}catch{[System.Windows.MessageBox]::Show($_.Exception.Message,'GoXLR Personalizado')|Out-Null;exit 1}
+}catch{[System.Windows.MessageBox]::Show($_.Exception.Message,'SlopXLR')|Out-Null;exit 1}

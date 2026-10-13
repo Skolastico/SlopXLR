@@ -33,8 +33,8 @@ if(!$WebViewBootstrap){
 $signature=Get-AuthenticodeSignature -LiteralPath $WebViewBootstrap
 if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation'){throw 'WebView2 bootstrap signature is not trusted'}
 Copy-Item -LiteralPath $WebViewBootstrap -Destination (Join-Path $stage 'WebView2Setup.exe')
-$setupName='GoXLR-Personalizado-'+$release.version+'-setup.exe'
-$zipName='GoXLR-Personalizado-'+$release.version+'-portable.zip'
+$setupName='SlopXLR-'+$release.version+'-setup.exe'
+$zipName='SlopXLR-'+$release.version+'-portable.zip'
 $setup=Join-Path $output $setupName
 & $NsisPath '/INPUTCHARSET' 'UTF8' ('/DVERSION='+$release.version) ('/DPACKAGE_DIR='+$stage) ('/DOUTPUT='+$setup) (Join-Path $PSScriptRoot 'windows\installer.nsi')
 if($LASTEXITCODE){throw 'Installer compilation failed'}

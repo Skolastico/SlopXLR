@@ -23,7 +23,7 @@ const GOXLR_APP_NAME: &str = "GoXLR App.exe";
 const GOXLR_BETA_APP_NAME: &str = "GoXLR Beta App.exe";
 fn autostart_filename() -> &'static str {
     if std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("installed.marker").exists())).unwrap_or(false) {
-        "GoXLR Personalizado.lnk"
+        "SlopXLR.lnk"
     } else {
         "GoXLR Utility.lnk"
     }

@@ -39,7 +39,7 @@ async fn main() -> Result<(), String> {
     // If running the utility has an error, make sure log level is debug, and propagate the
     // error up to the user on Windows.
     if let Err(e) = run_application().await {
-        show_error("GoXLR Utility UI".into(), e.to_string());
+        show_error("SlopXLR".into(), e.to_string());
         return Err(e.to_string());
     }
     Ok(())
@@ -159,7 +159,7 @@ async fn goxlr_preflight() -> Result<String, String> {
     let connection = LocalSocketStream::connect(path).await;
 
     if connection.is_err() {
-        let message = "The GoXLR Utility must be running before launching this app.";
+        let message = "SlopXLR must be running before launching this app.";
         return Err(message.into());
     }
     let mut socket: Socket<Value, Value> = Socket::new(connection.unwrap());
@@ -211,7 +211,7 @@ fn check_app_runtime(status: &Value) -> Result<Option<Value>, String> {
                     println!("{:#?}", path);
 
                     return if path.is_none() || PathBuf::from(path.unwrap()) != exe {
-                        let title = String::from("GoXLR Utility UI");
+                        let title = String::from("SlopXLR");
                         let message = String::from("Use this app to control your GoXLR?");
                         if show_option(title, message).is_ok() {
                             let command = get_activator_command(Some(exe));
@@ -302,7 +302,7 @@ async fn goxlr_utility_monitor(handle: AppHandle, host: String) {
         // We only support windows for these currently..
         show_error(
             "Unable to Launch UI".to_string(),
-            "Unable to connect to the GoXLR Utility".to_string(),
+            "Unable to connect to SlopXLR".to_string(),
         );
 
         // Now drop and quit.
@@ -374,7 +374,7 @@ async fn manage(install: bool) -> Result<(), String> {
             let _ = socket.send(json).await;
         } else {
             return Err(format!(
-                "Unable to {}, Please stop the GoXLR Utility first.",
+                "Unable to {}, Please stop SlopXLR first.",
                 method
             ));
         }

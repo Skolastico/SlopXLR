@@ -1,5 +1,5 @@
 {
-  "productName": "goxlr-utility-ui",
+  "productName": "SlopXLR",
   "version": "0.0.6",
   "identifier": "com.frostycoolslug.goxlr-utility-ui",
   "build": {
@@ -27,8 +27,7 @@
             "opener:default",
             "opener:allow-open-url"
           ],
-          "capabilities": [
-          ]
+          "capabilities": []
         }
       ]
     },
@@ -36,7 +35,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "GoXLR Utility",
+        "title": "SlopXLR",
         "width": 1300,
         "height": 910
       }

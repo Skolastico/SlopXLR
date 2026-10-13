@@ -108,6 +108,6 @@ try{
 }catch{
  @{state='error';message=$_.Exception.Message}|ConvertTo-Json|Set-Content $stateFile -Encoding utf8
  if($Mode -eq 'Check'){@{Error=$_.Exception.Message}|ConvertTo-Json -Compress}
- else{if($stopped){Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $script:AppDir 'Start.ps1')+'"')) -WindowStyle Hidden};Add-Type -AssemblyName PresentationFramework;[Windows.MessageBox]::Show($_.Exception.Message,'GoXLR Personalizado update')|Out-Null}
+ else{if($stopped){Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $script:AppDir 'Start.ps1')+'"')) -WindowStyle Hidden};Add-Type -AssemblyName PresentationFramework;[Windows.MessageBox]::Show($_.Exception.Message,'SlopXLR update')|Out-Null}
  exit 1
 }

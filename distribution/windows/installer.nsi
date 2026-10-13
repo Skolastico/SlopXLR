@@ -10,9 +10,9 @@ Unicode true
  !error "PACKAGE_DIR is required"
 !endif
 !ifndef OUTPUT
- !define OUTPUT "GoXLR-Personalizado-setup.exe"
+ !define OUTPUT "SlopXLR-setup.exe"
 !endif
-Name "GoXLR Personalizado ${VERSION}"
+Name "SlopXLR ${VERSION}"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\GoXLR-Personalizado"
 InstallDirRegKey HKCU "Software\Skolastico\GoXLR-Personalizado" "InstallDir"
@@ -79,7 +79,7 @@ Function Preflight
   Abort
  ${EndIf}
 FunctionEnd
-Section "GoXLR Personalizado (beta)" Main
+Section "SlopXLR (beta)" Main
  SectionIn RO
  Call Preflight
  SetOutPath "$INSTDIR"
@@ -90,15 +90,24 @@ Section "GoXLR Personalizado (beta)" Main
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  ${If} $Sandbox != 1
   WriteRegStr HKCU "Software\Skolastico\GoXLR-Personalizado" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "DisplayName" "GoXLR Personalizado"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "DisplayName" "SlopXLR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "Publisher" "Skolastico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "DisplayIcon" "$INSTDIR\goxlr-daemon.exe"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado" "NoRepair" 1
-  CreateDirectory "$SMPROGRAMS\GoXLR Personalizado"
-  CreateShortcut "$SMPROGRAMS\GoXLR Personalizado\GoXLR Personalizado.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1"' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
+  ; Migrate shortcuts created by the first beta; retain configuration paths.
+  Delete "$SMPROGRAMS\GoXLR Personalizado\GoXLR Personalizado.lnk"
+  RMDir "$SMPROGRAMS\GoXLR Personalizado"
+  IfFileExists "$SMSTARTUP\GoXLR Personalizado.lnk" 0 +3
+   CreateShortcut "$SMSTARTUP\SlopXLR.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1" -Background' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
+   Delete "$SMSTARTUP\GoXLR Personalizado.lnk"
+  IfFileExists "$DESKTOP\GoXLR Personalizado.lnk" 0 +3
+   CreateShortcut "$DESKTOP\SlopXLR.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1"' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
+   Delete "$DESKTOP\GoXLR Personalizado.lnk"
+  CreateDirectory "$SMPROGRAMS\SlopXLR"
+  CreateShortcut "$SMPROGRAMS\SlopXLR\SlopXLR.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1"' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
   ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
   ReadRegStr $1 HKCU "SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
   ${If} $0 == ""
@@ -113,12 +122,12 @@ Section "GoXLR Personalizado (beta)" Main
 SectionEnd
 Section /o "$(StartLabel)" AutoStart
  ${If} $Sandbox != 1
-  CreateShortcut "$SMSTARTUP\GoXLR Personalizado.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1" -Background' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
+  CreateShortcut "$SMSTARTUP\SlopXLR.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1" -Background' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
  ${EndIf}
 SectionEnd
 Section /o "$(ShortcutLabel)" DesktopShortcut
  ${If} $Sandbox != 1
-  CreateShortcut "$DESKTOP\GoXLR Personalizado.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1"' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
+  CreateShortcut "$DESKTOP\SlopXLR.lnk" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\Start.ps1"' "$INSTDIR\goxlr-daemon.exe" 0 SW_SHOWMINIMIZED
  ${EndIf}
 SectionEnd
 Function un.onInit
@@ -142,10 +151,10 @@ Section "Uninstall"
    SetErrorLevel 3
    Abort
   ${EndIf}
-  Delete "$SMSTARTUP\GoXLR Personalizado.lnk"
-  Delete "$DESKTOP\GoXLR Personalizado.lnk"
-  Delete "$SMPROGRAMS\GoXLR Personalizado\GoXLR Personalizado.lnk"
-  RMDir "$SMPROGRAMS\GoXLR Personalizado"
+  Delete "$SMSTARTUP\SlopXLR.lnk"
+  Delete "$DESKTOP\SlopXLR.lnk"
+  Delete "$SMPROGRAMS\SlopXLR\SlopXLR.lnk"
+  RMDir "$SMPROGRAMS\SlopXLR"
   DeleteRegKey HKCU "Software\Skolastico\GoXLR-Personalizado"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoXLR-Personalizado"
  ${EndIf}

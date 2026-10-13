@@ -1,36 +1,32 @@
-GoXLR Personalizado 0.1.0-beta.1
-Windows x64 / Português / English
+SlopXLR 0.1.0-beta.2 — Windows x64
 
-PT
-Versão beta testada no GoXLR Mini. O GoXLR completo mantém suporte no código, sem validação física nesta versão.
-É necessário o driver oficial de áudio GoXLR. O instalador inclui o bootstrap oficial Microsoft WebView2.
-Instalador: dados em %APPDATA%\Skolastico\GoXLR-Personalizado.
-Portátil: extrair o ZIP para uma pasta onde possas escrever e abrir Open.cmd. Dados em user-data.
-Na primeira abertura podes importar o Utility existente ou começar de raiz.
-Para importar esta cópia personalizada manualmente, executa Start.ps1 -ImportFrom "caminho\config\settings.json".
-A origem é copiada e conservada. Uma pasta já inicializada não é substituída.
-Definições: idioma, atualizações e Interface anterior em Opções avançadas.
-A atualização só começa depois de confirmação; verifica assinatura e SHA-256 antes de encerrar.
-Backups ficam em update-backups na pasta de dados. Samples permanecem na biblioteca.
-Desinstalar conserva os dados. Não executes duas versões GoXLR ao mesmo tempo.
-Repositório privado: descarrega as versões autenticado no GitHub e instala manualmente. Atualizações automáticas requerem releases públicas assinadas.
-A assinatura dos updates é separada da assinatura comercial de executáveis do Windows.
+An independent variant of GoXLR Utility by Skolastico.
+Source, releases and full guides: https://github.com/Skolastico/SlopXLR
 
-EN
-Beta tested on GoXLR Mini. Full-size GoXLR support remains in code, without physical validation in this release.
-The official GoXLR audio driver is required. The installer includes Microsoft's official WebView2 bootstrap.
-Installed data: %APPDATA%\Skolastico\GoXLR-Personalizado.
-Portable: extract to a writable folder and open Open.cmd. Data is stored in user-data.
-First launch offers importing an existing Utility configuration or starting fresh.
-To import a customised copy manually, run Start.ps1 -ImportFrom "path\config\settings.json".
-The source is copied and preserved. An already initialised destination is never overwritten.
-Settings contains language, updates and Previous interface under Advanced options.
-Updates require confirmation and verify the signature and SHA-256 before stopping the application.
-Backups are stored in update-backups inside the data folder. Samples remain in the library.
-Uninstalling keeps your data. Do not run two GoXLR applications at once.
-Private repository: download releases while signed in to GitHub and install manually. Automatic updates require signed public releases.
-Update signatures are separate from Windows executable code signing.
+English
+Install the official GoXLR audio driver and close other Utility instances.
+Installer: run the setup executable. Microsoft WebView2 is installed if needed.
+Portable: extract all files into a writable folder and open Open.cmd.
+First interactive launch offers importing the original Utility configuration.
+Import copies settings and libraries without changing the source.
+Installed data: %APPDATA%/Skolastico/GoXLR-Personalizado (legacy compatibility name).
+Portable data: user-data, or an existing config/settings.json beside the app.
+Settings contains Language, Application updates and Previous interface under Advanced options.
+Save device/microphone profiles and Controls/Applications changes separately.
+The repository is private: sign in to GitHub to download updates and install manually.
+Public in-app updates verify RSA signatures and SHA-256; full update testing is pending.
+Reinstalling/uninstalling preserves user data. Keep backups before upgrading.
+Tested on GoXLR Mini. Full-size hardware and a clean second PC still need validation.
+Windows code signing is separate from update-manifest signing.
 
-Source / Código: https://github.com/Skolastico/SlopXLR
-Based on GoXLR-on-Linux/GoXLR-Utility and the GoXLR Utility UI wrapper.
-See LICENSE, LICENSE-UI and LICENSE-3RD-PARTY.
+Português
+Instala o driver oficial GoXLR e encerra outras versões do Utility.
+Instalador: abre o setup. Portátil: extrai todos os ficheiros e abre Open.cmd.
+Na primeira abertura podes copiar a configuração original ou começar de raiz.
+A origem é conservada. Reinstalar/desinstalar conserva os dados.
+Definições: Idioma, Atualizações e Interface anterior em Opções avançadas.
+Guarda os perfis e as alterações de Controlos/Aplicações separadamente.
+Repositório privado: entra no GitHub para descarregar atualizações e instala manualmente.
+Beta testada no Mini; falta validar o GoXLR completo e outro computador.
+
+Credits/licenses: LICENSE, LICENSE-UI and LICENSE-3RD-PARTY.
